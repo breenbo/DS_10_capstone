@@ -1,0 +1,356 @@
+---
+title: "Text Prediction"
+output: 
+    html_document: 
+        includes:
+            after_body: custom/footer.html
+        toc: true 
+        toc_depth: 3
+        toc_float: true
+        highlight: pygments
+        css: custom/custom.css
+---
+
+
+```{r globalOptions, echo=FALSE}
+knitr::opts_chunk$set(comment=NA)
+```
+```{r, functionResume, echo=FALSE}
+# quick overwiew of datas
+overview <- function(texte) {
+    data.frame(lines=length(texte), meanChar=mean(nchar(texte)), sdChar=sd(nchar(texte)), minChar=min(nchar(texte)), maxChar=max(nchar(texte)))
+}
+
+# overview for multiple files
+multiOverview <- function(liste) {
+    # take a list of character containing names of text variables, then return a dataframe of stats
+    dataSumList <- lapply(liste, function(x) overview(get(x)))
+    len <- length(liste)
+    dataSum <- data.frame()
+    for(i in 1:len) {
+        dataSum <- rbind(dataSum, dataSumList[[i]])
+    }
+    row.names(dataSum) <- liste
+    dataSum
+}
+
+# preprocess text file
+cleanCorpus <- function(textFile, lang="english", stopwords=FALSE) {
+    # take a text file or a text variable, and a language, and return a clean and stemmed corpus 
+    library(tm)
+    library(SnowballC)
+    if(length(textFile)==1) {
+        # textFile is a path to file must be read
+        texte <- readLines(textFile, skipNul=TRUE)
+    } else {
+        # textFile is a variable already read
+        texte <- textFile
+    }
+    # create corpus with file
+    corpus <- VCorpus(VectorSource(texte))
+    # clean and stem corpus
+    corpus <- tm_map(corpus, content_transformer(tolower))
+    corpus <- tm_map(corpus, removePunctuation)
+    corpus <- tm_map(corpus, removeNumbers)
+    if(stopwords==TRUE){
+        corpus <- tm_map(corpus, removeWords, stopwords(lang))
+    }
+    corpus <- tm_map(corpus, stemDocument, language=lang)
+    corpus <- tm_map(corpus, stripWhitespace)
+    corpus
+}
+
+cleanDF <- function(tdm) {
+    # take a tdm and return a dataframe with words/ngrams and ordered frequencies
+    m <- as.matrix(tdm)
+    v <- sort(rowSums(m), decreasing=T)
+    d <- data.frame(word=names(v), freq=v, percent=v/sum(v)*100,
+                    cumulative_percent=cumsum(v/sum(v)*100))
+    d
+}
+
+tdmNgram <- function(corpus, nb=2){
+    # take a corpus, min and max length of ngram, and return a tdm of ngrams
+    library(tm)
+    library(RWeka)
+    options(mc.cores=1)
+    ngramControl <- function(x) {
+        RWeka::NGramTokenizer(x, Weka_control(min=nb, max=nb))
+    }
+    tdm <- TermDocumentMatrix(corpus, control=list(tokenize=ngramControl))
+    tdm
+}
+```
+
+# Principles
+
+1. "Text mining" : download and clean the dataset for analysis.
+      - predictive machine isn't text mining for ordering or analysis
+      - question for stemming and remove stopwords, because people write them so they need predictive dictionary
+
+2. Exploratory Analysis : 
+      - understand the distribution and the relationship between the words, tokens and phrases.
+      - understand basic relationship in the data
+      - prepare to build the first linguistic model
+
+# Text Mining 
+
+Sources : 
+
+- [data.bzh](http://data-bzh.fr/?s=text+mining)
+- [whatsupdata.fr](http://whatsupdata.fr/content/le-text-mining-et-la-d%C3%A9couverte-des-principales-%C2%AB-th%C3%A9matiques-%C2%BB-d%E2%80%99un-corpus-de-documents)
+- [gentle introduction to text mining using R](https://eight2late.wordpress.com/2015/05/27/a-gentle-introduction-to-text-mining-using-r/)
+- [gentle introduction to topic modeling using R](https://eight2late.wordpress.com/?s=topic+model)
+- [R code : reading, preprocessing and counting](http://www.katrinerk.com/courses/words-in-a-haystack-an-introductory-statistics-course/schedule-words-in-a-haystack/r-code-the-text-mining-package)
+
+## Theory
+
+- initial text
+- preprocessing - cleaning corpus
+    + all to lower
+    + remove punctuation, numbers, url,...
+    + remove stopwords
+    + remove whitespaces
+    + remove word less than 2 char
+    + Stemming / Lemming
+- Tokenization (1 and n-grams)
+- keywords lexical
+
+## Decision to make
+
+1. sample datasets ?
+1. Separate datasets ?
+      - twit are short message with lots of typo, and news / blogs are more developed text
+      - train model on different purposes, for different users.  
+        
+
+1. Remove stopwords ?
+      - People write them, so they may need a prediction for stopwords.  
+      - Try an anlysis without removing to see what's happening.
+
+
+1. Stemming or not ?
+      - Good to unite declinaison of words, and remove some typos ?
+
+## Loading text in a corpus
+
+```{r, readData, cache=TRUE}
+library(tm)
+twit <- readLines("../text/en_US.twitter.txt", skipNul=TRUE)
+# blog <- readLines("../text/en_US.blogs.txt", skipNul=TRUE)
+# nouvelles <- readLines("../text/en_US.news.txt", skipNul=TRUE)
+```
+Quick exploratory :
+```{r, overview, results="asis", cache=TRUE}
+# function to view some stats
+overview <- function(texte) {
+    data.frame(lines=length(texte), meanChar=mean(nchar(texte)), sdChar=sd(nchar(texte)),
+               minChar=min(nchar(texte)), maxChar=max(nchar(texte)))
+}
+
+# view results
+# library(knitr)
+# kable(dataSum)
+```
+```{r, sample, cache=TRUE}
+twit[1]
+```
+
+Searching some words (for quizz, but can be useful in other cases).
+Use *grep()* function :
+```{r, question3, cache=TRUE}
+length(twit)
+nbLinesLove <- length(grep("love", twit))
+nbLinesHate <- length(grep("hate", twit))
+nbLinesLove / nbLinesHate
+twit[grep("biostats", twit)]
+grep("A computer once beat me at chess, but it was no match for me at kickboxing", twit)
+```
+
+Select random sample for testing process and functions :
+```{r, testCorpus}
+library(tm)
+set.seed(2704)
+twitTest <- sample(twit, 200, replace=T)
+twitCTest <- VCorpus(VectorSource(twitTest))
+twitCTest[[27]]$content
+```
+
+## PreProcessing - cleaning corpus
+Detailed and teaching process for a limited testing dataset (twitCtest). Use functions at the end of document to process on full datasets.
+
+### ToLowerCase
+```{r}
+twitClean <- tm_map(twitCTest, content_transformer(tolower))
+```
+
+### Suppress unecessary items
+Unecessary items in text mining are : punctuation, numbers, url, etc.  
+To have the transformations possible with tm package :
+```{r}
+getTransformations()
+```
+
+Use transformations functions of tm package.
+```{r}
+twitClean <- tm_map(twitClean, removePunctuation)
+twitClean <- tm_map(twitClean, removeNumbers)
+```
+
+### Stopword
+Common word like and, for, in, which add noise and no value.
+```{r}
+twitClean <- tm_map(twitClean, removeWords, stopwords("english"))
+```
+
+Possibility to remove specific words :
+```{r, eval=FALSE}
+twitClean <- tm_map(twitClean, removeWords, c("one", "two"))
+```
+
+### Remove words less than 2 chars
+```{r, removeSmall}
+```
+
+### Synonyms
+
+Use *wordnet package*. Replace all synonym by a single word.
+
+```{r, eval=FALSE}
+library(wordnet)
+replaceWords(text, synonyms(dict, "company"), by="company")
+```
+
+### Stemming / lemming
+
+Stemming - more simple : erasing words suffixes to retrieve radicals.
+Works with *stemDocument()* function.
+
+```{r, stem}
+library(SnowballC)
+twitClean <- tm_map(twitClean, stemDocument, language="english")
+twitClean[[23]]$content
+```
+
+Lemming - more accurate ?
+
+- class words on lemm (run ran running -> run), based on the signification
+- use packages [TreeTagger](http://www.cis.uni-muenchen.de/~schmid/tools/TreeTagger/#Linux) and [koRpus](http://edutechwiki.unige.ch/fr/Tutoriel_koRpus).
+- don't work, don't know why...
+
+### Remove whitespaces
+To do at last.
+```{r, whitespace}
+twitClean <- tm_map(twitClean, stripWhitespace)
+```
+To illustrate before and after the processing :
+```{r, compareResults, results="asis"}
+result <- data.frame(before=twitCTest[[27]]$content, after=twitClean[[27]]$content)
+knitr::kable(result, row.names=F)
+```
+
+# Exploratory Analysis
+
+## Questions to consider
+
+- what are the distribution of words frequencies ?
+     + analysis with and without stopwords ?
+- what are the frequencies of 2-grams and 3-grams ?
+- How many unique words in a frequency sorted dictionary to cover 50% of all words instance ? 90% ?
+- how to increase the coverage ? 
+     + analysis without stemming
+     + try with stemming in order to increase coverage
+- how evaluate how many words from foreign languages ?
+
+## Frequencies of words and wordcloud
+
+### Distribution of frequencies of words
+Document matrix is a table containing the frequency of words.  
+Use *TermDocumentMatrix()* from the tm package.
+```{r, tdm}
+tdm <- TermDocumentMatrix(twitClean)
+tdm
+```
+```{r, matrixTdm, results="asis"}
+m <- as.matrix(tdm)
+v <- sort(rowSums(m), decreasing=T)
+d <- data.frame(word=names(v), freq=v, percent=v/sum(v)*100,
+                cumulative_percent=cumsum(v/sum(v)*100))
+knitr::kable(head(d), row.names=F)
+knitr::kable(tail(d), row.names=F)
+```
+```{r, histo}
+breakNb <- 1:d[1,]$freq
+hist(d$freq, breaks=breakNb, freq=FALSE, col="lightgreen", border="black",
+     main="Distribution of frequencies", xlab="words frequencies")
+```
+
+### Minimum unique words to cover distribution
+```{r, coverWords, results="asis"}
+# could do a function to choose the coverage value.
+plot(d$cumulative_percent, pch=20, xlab="number of unique words", ylab="words coverage (%)")
+abline(h=50, col="orange")
+abline(v=which(d$cumulative_percent > 50)[1], col="orange")
+abline(h=90, col="red")
+abline(v=which(d$cumulative_percent > 90)[1], col="red")
+
+index50 <- which(d$cumulative_percent > 50)[1]
+index90 <- which(d$cumulative_percent > 90)[1]
+
+coverWords <- data.frame(percent50=index50, percent90=index90)
+row.names(coverWords) <- "number of unique words"
+knitr::kable(coverWords)
+```
+
+### Plot most frequents words
+
+```{r, mostFrequent, fig.align="center"}
+barplot(d[1:30,]$percent, names.arg=d[1:30,]$word, col="lightblue", las=2,
+        main="30 most frequent words", ylab="word frequencies (%)")
+```
+
+### Generate Wordcloud
+Visual funny representation, use the *wordcloud2()* function of the wordcloud2 package.
+```{r, wordcloud, message=FALSE, fig.align="center"}
+library(wordcloud2)
+wordcloud2(d, size=0.6)
+```
+
+## 2 and 3-grams
+Use the *ngram()* function of the ngram package.  
+Use the *weka()* function of the RWeka package with tm().
+
+```{r, ngram, results="asis", cache=TRUE}
+
+tdmNgram <- function(corpus, nb=2){
+    # take a corpus, min and max length of ngram, and return a tdm of ngrams
+    library(RWeka)
+    library(tm)
+    options(mc.cores=1)
+    # http://stackoverflow.com/questions/17703553/bigrams-instead-of-single-words-in-termdocument-matrix-using-r-and-rweka/20251039#20251039
+    ngramControl <- function(x) {
+        RWeka::NGramTokenizer(x, Weka_control(min=nb, max=nb))
+    }
+    tdm <- TermDocumentMatrix(corpus, control=list(tokenize=ngramControl))
+    tdm
+}
+
+twoGram <- tdmNgram(twitClean, 2)
+knitr::kable(head(cleanDF(twoGram)), row.names=F)
+
+threeGram <- tdmNgram(twitClean, 3)
+knitr::kable(head(cleanDF(threeGram)), row.names=F)
+```
+
+## Terms associations
+
+### Explore associations
+
+```{r}
+findFreqTerms(tdm, lowfreq=10)
+findAssocs(tdm, terms="people", corlimit=0.6)
+```
+
+# Functions Resume
+```{r, ref.label="functionResume"}
+```
