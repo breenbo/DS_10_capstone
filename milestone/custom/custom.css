@@ -1,0 +1,81 @@
+h1 {
+    color:black;
+    background-color:hsl(280,80%,75%);
+    padding-top:1vh;
+    padding-bottom:1vh;
+    padding-left:10px;
+    margin-left:-10px;
+    border-radius:5px;
+    box-shadow: 4px 4px 3px 0px rgba(0, 0, 0, 0.2), 4px 4px 3px 0px rgba(0, 0, 0, 0.19);
+
+}
+
+h2 {
+    color: black;
+    background-color:hsl(280,50%,90%);
+    padding-left:10px;
+    padding-top:1vh;
+    padding-bottom:1vh;
+    padding-left:10px;
+    margin-left:-10px;
+    border-radius:5px;
+    box-shadow: 2px 2px 3px 0px rgba(0, 0, 0, 0.2), 2px 2px 3px 0px rgba(0, 0, 0, 0.19);
+}
+
+h3 {
+    color:black;
+    border-bottom:solid 1px;
+    border-bottom-color:hsl(0,0%,60%);
+    margin-top:30px;
+    margin-bottom:10px;
+}
+
+.logo {
+    width:3vw;
+    margin-right:5px;
+}
+
+.title{
+    /* position:fixed; */
+    /* top:0; */
+    /* left:0; */
+    /* margin-top:-0.2vh; */
+    /* height:10vh; */
+    /* width:30.5vw; */
+    background-color:hsl(25,100%,55%);
+    box-shadow: 6px 6px 3px 0px rgba(0, 0, 0, 0.2), 6px 6px 3px 0px rgba(0, 0, 0, 0.19);
+    /* box-shadow:none; */
+    /* font-weight:bold; */
+    /* font-size:5vh; */
+    /* text-align:center; */
+}
+
+#footer {
+    position:fixed;
+    bottom:0;
+    left:0;
+    width:100vw;
+    height:3vh;
+    /* margin-left:-30.5vw; */
+    background-color:hsla(25,100%,55%,0.8);
+    /* background-color:hsla(280,50%,70%,0.85); */
+    /* background-color:orange; */
+    border-radius:3px;
+}
+
+#logoBlock {
+    float:right;
+    margin-top:-1.5vw;
+    margin-right:1vw;
+}
+
+#name {
+    font-weight:bold;
+    padding-top:0.3vh;
+    padding-left:0.5vw;
+}
+
+#TOC {
+    /* border:none; */
+    /* top:10vh; */
+}
