@@ -140,13 +140,20 @@ tdmNgram <- function(corpus, nb=2){
 
 ## What are the datas ?
 Example of the datas provided and some stats about the number of words, which are of interest for predictive text purposes.
+Example of lines for each datasets are shown below :
 ```{r, readData, cache=TRUE}
 library(tm)
 twit <- readLines("../text/en_US.twitter.txt", skipNul=TRUE)
 blog <- readLines("../text/en_US.blogs.txt", skipNul=TRUE)
 nouvelles <- readLines("../text/en_US.news.txt", skipNul=TRUE)
 ```
-Quick exploratory :
+```{r, sample, cache=TRUE}
+twit[1]
+blog[1]
+nouvelles[1]
+```
+
+Quick exploratory of the numbers of words for each lines and for each datasets.
 ```{r, overview, results="asis", cache=TRUE}
 # function to view some stats
 liste <- c("twit", "blog", "nouvelles")
@@ -155,11 +162,9 @@ dataSum <- multiOverview(liste)
 library(knitr)
 knitr::kable(dataSum)
 ```
-```{r, sample, cache=TRUE}
-twit[1]
-blog[1]
-nouvelles[1]
-```
+As numbers of words are quite important, the work will be done on a sample with a good representativeness of the total datas (`power.test()` function).
+
+### DO A POWER TEST AROUND MEAN TO CHOOSE SAMPLE SIZE WITH CONFIDENCE OF 95%.
 
 Select random sample for testing process and functions :
 ```{r, testCorpus}
@@ -170,7 +175,11 @@ twitCTest <- VCorpus(VectorSource(twitTest))
 twitCTest[[27]]$content
 ```
 
-## PreProcessing - cleaning corpus
+## PreProcessing - cleaning datasets
+In order to show the most frequent words, a cleaning must be done to avoid noise with uppercase, punctuation, typos or numbers.
+
+### USE CLEAN FUNCTION, DON'T REMOVE STOPWORDS IN BEGINNING, TRY STEMMING AFTER
+
 Detailed and teaching process for a limited testing dataset (twitCtest). Use functions at the end of document to process on full datasets.
 
 ### ToLowerCase
