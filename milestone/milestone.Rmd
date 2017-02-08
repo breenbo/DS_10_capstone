@@ -33,7 +33,7 @@ registerDoMC(cores=6) # parallel computation
 # }
 
 overview <- function(texte) {
-    data.frame(total.Lines=length(texte), total.Words=sum(str_count(texte,'\\w+')), mean.word.by.line=mean(str_count(texte,'\\w+')), min.word.by.line=min(str_count(texte,'\\w+')), max.word.by.line=max(str_count(texte,'\\w+')))
+    data.frame(total.Lines=length(texte), total.words=sum(str_count(texte,'\\w+')), mean.word.by.line=mean(str_count(texte,'\\w+')), sd.of.mean=sd(str_count(texte,'\\w+')), max.word.by.line=max(str_count(texte,'\\w+')))
 }
 
 # overview for multiple files
@@ -50,7 +50,7 @@ multiOverview <- function(liste) {
 }
 
 # preprocess text file
-cleanCorpus <- function(textFile, lang="english", stopwords=FALSE) {
+cleanCorpus <- function(textFile, lang="english", stopwords=FALSE, stemDoc=FALSE) {
     # take a text file or a text variable, and a language, and return a clean and stemmed corpus 
     library(tm)
     library(SnowballC)
@@ -70,7 +70,9 @@ cleanCorpus <- function(textFile, lang="english", stopwords=FALSE) {
     if(stopwords==TRUE){
         corpus <- tm_map(corpus, removeWords, stopwords(lang))
     }
-    corpus <- tm_map(corpus, stemDocument, language=lang)
+    if(stemDoc==TRUE){
+        corpus <- tm_map(corpus, stemDocument, language=lang)
+    }
     corpus <- tm_map(corpus, stripWhitespace)
     corpus
 }
@@ -97,30 +99,20 @@ tdmNgram <- function(corpus, nb=2){
 }
 ```
 
-# Principles
+# Executive summary
 
-1. "Text mining" : download and clean the dataset for analysis.
-      - predictive machine isn't text mining for ordering or analysis
-      - question for stemming and remove stopwords, because people write them so they need predictive dictionary
+In order to build a predictive algorithm for typed text, three datasets must be analysed to discover relationships between words and group of words.
+These datasets contain several sentences and millions of words, and cover three semantics fields :
 
-2. Exploratory Analysis : 
-      - understand the distribution and the relationship between the words, tokens and phrases.
-      - understand basic relationship in the data
-      - prepare to build the first linguistic model
+- a twitter dataset, with short sentences and abbreviations,
+- a blog dataset, with more longer sentences and a different vocabulary,
+- a news datasets, with another different vocabulary.
 
 
-## Theory
-
-- initial text
-- preprocessing - cleaning corpus
-    + all to lower
-    + remove punctuation, numbers, url,...
-    + remove stopwords
-    + remove whitespaces
-    + remove word less than 2 char
-    + Stemming / Lemming
-- Tokenization (1 and n-grams)
-- keywords lexical
+After some cleaning by removing "noise" (punctuation, typo, uppercase, numbers and whitespaces), the most frequents words will be plotted with barplots and cloudwords for each datasets.
+Note that, unusualy, the common words aren't removed, as people write them and wish to have predictions after them.
+The datasets aren't merged too, in order to propose a prediction for each semantic field covered by the three datasets.  
+Finally, this choices will lead to the next step of the project : building the predictive algorithm.
 
 ## Decision to make
 
@@ -138,31 +130,43 @@ tdmNgram <- function(corpus, nb=2){
 1. Stemming or not ?
       - Good to unite declinaison of words, and remove some typos ?
 
+# Datas overview
+
 ## What are the datas ?
 Example of the datas provided and some stats about the number of words, which are of interest for predictive text purposes.
-Example of lines for each datasets are shown below :
 ```{r, readData, cache=TRUE}
 library(tm)
 twit <- readLines("../text/en_US.twitter.txt", skipNul=TRUE)
 blog <- readLines("../text/en_US.blogs.txt", skipNul=TRUE)
 nouvelles <- readLines("../text/en_US.news.txt", skipNul=TRUE)
 ```
+
+Example of lines for each datasets are shown below :  
 ```{r, sample, cache=TRUE}
 twit[1]
 blog[1]
 nouvelles[1]
 ```
 
+
 Quick exploratory of the numbers of words for each lines and for each datasets.
 ```{r, overview, results="asis", cache=TRUE}
 # function to view some stats
 liste <- c("twit", "blog", "nouvelles")
-dataSum <- multiOverview(liste)
+datasum <- multiOverview(liste)
 # view results
 library(knitr)
-knitr::kable(dataSum)
+knitr::kable(datasum, format.args=list(big.mark=","), digits=2)
 ```
+
+
 As numbers of words are quite important, the work will be done on a sample with a good representativeness of the total datas (`power.test()` function).
+The following hypothesis are done too :
+
+- the vocabulary and the semantics fields are different between each datasets
+  - the twit dataset should contains more typo and abbreviations than the two others, because of the character limitation of twitter
+    
+As people are writing in each semantic field, the datasets will not be merged in order to predict words for each field.
 
 ### DO A POWER TEST AROUND MEAN TO CHOOSE SAMPLE SIZE WITH CONFIDENCE OF 95%.
 
@@ -170,7 +174,7 @@ Select random sample for testing process and functions :
 ```{r, testCorpus}
 library(tm)
 set.seed(2704)
-twitTest <- sample(twit, 200, replace=T)
+twitTest <- sample(twit, 20000, replace=T)
 twitCTest <- VCorpus(VectorSource(twitTest))
 twitCTest[[27]]$content
 ```
@@ -182,70 +186,10 @@ In order to show the most frequent words, a cleaning must be done to avoid noise
 
 Detailed and teaching process for a limited testing dataset (twitCtest). Use functions at the end of document to process on full datasets.
 
-### ToLowerCase
 ```{r}
-twitClean <- tm_map(twitCTest, content_transformer(tolower))
+twitClean <- cleanCorpus(twitCTest)
 ```
 
-### Suppress unecessary items
-Unecessary items in text mining are : punctuation, numbers, url, etc.  
-To have the transformations possible with tm package :
-```{r}
-getTransformations()
-```
-
-Use transformations functions of tm package.
-```{r}
-twitClean <- tm_map(twitClean, removePunctuation)
-twitClean <- tm_map(twitClean, removeNumbers)
-```
-
-### Stopword
-Common word like and, for, in, which add noise and no value.
-```{r}
-twitClean <- tm_map(twitClean, removeWords, stopwords("english"))
-```
-
-Possibility to remove specific words :
-```{r, eval=FALSE}
-twitClean <- tm_map(twitClean, removeWords, c("one", "two"))
-```
-
-### Remove words less than 2 chars
-```{r, removeSmall}
-```
-
-### Synonyms
-
-Use *wordnet package*. Replace all synonym by a single word.
-
-```{r, eval=FALSE}
-library(wordnet)
-replaceWords(text, synonyms(dict, "company"), by="company")
-```
-
-### Stemming / lemming
-
-Stemming - more simple : erasing words suffixes to retrieve radicals.
-Works with *stemDocument()* function.
-
-```{r, stem}
-library(SnowballC)
-twitClean <- tm_map(twitClean, stemDocument, language="english")
-twitClean[[23]]$content
-```
-
-Lemming - more accurate ?
-
-- class words on lemm (run ran running -> run), based on the signification
-- use packages [TreeTagger](http://www.cis.uni-muenchen.de/~schmid/tools/TreeTagger/#Linux) and [koRpus](http://edutechwiki.unige.ch/fr/Tutoriel_koRpus).
-- don't work, don't know why...
-
-### Remove whitespaces
-To do at last.
-```{r, whitespace}
-twitClean <- tm_map(twitClean, stripWhitespace)
-```
 To illustrate before and after the processing :
 ```{r, compareResults, results="asis"}
 result <- data.frame(before=twitCTest[[27]]$content, after=twitClean[[27]]$content)
@@ -282,6 +226,7 @@ d <- data.frame(word=names(v), freq=v, percent=v/sum(v)*100,
 knitr::kable(head(d), row.names=F)
 knitr::kable(tail(d), row.names=F)
 ```
+
 ```{r, histo}
 breakNb <- 1:d[1,]$freq
 hist(d$freq, breaks=breakNb, freq=FALSE, col="lightgreen", border="black",
@@ -316,7 +261,7 @@ barplot(d[1:30,]$percent, names.arg=d[1:30,]$word, col="lightblue", las=2,
 Visual funny representation, use the *wordcloud2()* function of the wordcloud2 package.
 ```{r, wordcloud, message=FALSE, fig.align="center"}
 library(wordcloud2)
-wordcloud2(d, size=0.6)
+wordcloud2(d[1:200,], size=0.6)
 ```
 
 ## 2 and 3-grams
@@ -365,17 +310,17 @@ findAssocs(tdm, terms="people", corlimit=0.6)
 # Code Resume
 
 ## Libraries
-```{r, ref.label="libraries", echo=TRUE}
+```{r, ref.label="libraries", echo=TRUE, eval=FALSE}
 ```
 
 ## Functions
 
-```{r, ref.label="functionResume", echo=TRUE}
+```{r, ref.label="functionResume", echo=TRUE, eval=FALSE}
 ```
 
 ## Datas Summaries
-```{r, ref.label="readData", echo=TRUE}
+```{r, ref.label="readData", echo=TRUE, eval=FALSE}
 ```
-```{r, ref.label="overwiew", echo=TRUE}
+```{r, ref.label="overwiew", echo=TRUE, eval=FALSE}
 ```
 
