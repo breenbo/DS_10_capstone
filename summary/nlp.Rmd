@@ -13,7 +13,7 @@ output:
 
 
 ```{r globalOptions, echo=FALSE}
-knitr::opts_chunk$set(comment=NA)
+knitr::opts_chunk$set(comment=NA, message=FALSE)
 ```
 ```{r, libraries}
 library(stringr) # wordcount
@@ -145,7 +145,7 @@ grep("A computer once beat me at chess, but it was no match for me at kickboxing
 
 ### Pre-processing
 Select random sample for testing process and functions :
-```{r, testCorpus}
+```{r, testCorpus, cache=TRUE}
 library(tm)
 set.seed(2704)
 twitTest <- sample(twit, 2000, replace=F)
@@ -185,6 +185,7 @@ cleanCorpus <- function(textFile, lang="english", stopwords=FALSE, stemming=FALS
 }
 
 twitClean <- cleanCorpus(twitTest, stopwords=TRUE, stemming=TRUE)
+print(object.size(twitClean), units="auto", quote=FALSE)
 ```
 
 Possibility to remove specific words :
@@ -200,7 +201,7 @@ Lemming - more accurate ?
 
 To illustrate before and after the processing :
 ```{r, compareResults, results="asis"}
-result <- data.frame(before=twitCTest[[27]]$content, after=twitClean[[27]]$content)
+result <- data.frame(before=twitTest[[27]], after=twitClean[[27]]$content)
 knitr::kable(result, row.names=F)
 ```
 
@@ -300,6 +301,7 @@ knitr::kable(head(cleanDF(threeGram)), row.names=F)
 ```
 
 ## tidytext package
+***
 Source : [tidytextmining.com](http://tidytextmining.com/)
 
 Good to use method like dplyr, very easy to use with pipe. Can be directly piped to ggplot2.  
@@ -311,42 +313,38 @@ Has to write number of lines in a column, then the text dataset in an other, unl
 ```{r}
 library(tidytext)
 library(dplyr)
+library(data.table)
 head(twitTest)
-dfTwit <- data.table(line=1:2000, text=twitTest)
+dfTwit <- data.table(line=1:20000, text=twitTest)
 str(dfTwit)
-object.size(dfTwit)
+print(object.size(dfTwit), units="auto", quote=FALSE)
+
 tidyText <- dfTwit %>% unnest_tokens(word, text)
+tidyText <- tidyText %>% filter(!grepl('[0-9]', word))
+
 str(tidyText)
 head(tidyText)
-object.size(tidyText)
+print(object.size(tidyText), units="auto", quote=FALSE)
 ```
 
 Note that :
 
 - punctuation has been removed
 - unnest_tokens converts the token to lower case.
+- numbers are removed with the `filter()` and `grepl()` functions, and a regexp.
 
 Many options available to tweak default behaviour.
 Easy to use tiny method like dplyr, tidyr, ggplot2 and broom.  
 
-### N-grams
-
-N-grams con be created with the token option :
-
-```{r}
-twoGrams <- dfTwit %>% unnest_tokens(ngrams, text, token="ngrams", n=2)
-str(twoGrams)
-head(twoGrams)
-```
 
 ### Stopwords
-Use `anti_join()` function.
+Use `anti_join()` function with the stop_words data.
 ```{r}
 data(stop_words)
 stopText <- tidyText %>% anti_join(stop_words)
 dim(stopText)
 head(stopText)
-object.size(stopText)
+print(object.size(stopText), units="auto", quote=FALSE)
 ```
 
 ### Most commun words 
@@ -371,7 +369,39 @@ tidyText %>%
     coord_flip()
 ```
 
+### Relations between words
+
+#### N-grams
+
+N-grams con be created with the token option :
+
+```{r}
+bigrams <- dfTwit %>% 
+    unnest_tokens(bigram, text, token="ngrams", n=2) 
+bigrams <- bigrams %>% filter(!grepl('[0-9]', bigram))
+str(bigrams)
+head(bigrams)
+```
+Now we can examine the most common bigrams :
+```{r}
+bigrams %>% count(bigram, sort=T)
+```
+
+And the most common bigrams without stopwords : use the `separate()` function of the `tidyr` package, which split column into multiple based on a separator :
+```{r}
+library(tidyr)
+separate_bigrams <- bigrams %>% 
+    separate(bigram, c("word1","word2"), sep=" ")
+filtered_bigrams <- separate_bigrams %>%
+    filter(!word1 %in% stop_words$word) %>%
+    filter(!word2 %in% stop_words$word)
+# new count
+filtered_bigrams %>% count(word1, word2, sort=T)
+```
+
+
 ## quanteda package
+***
 Source : [get started with quanteda](https://cran.r-project.org/web/packages/quanteda/vignettes/quickstart.html)
 
 
