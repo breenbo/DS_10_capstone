@@ -21,6 +21,16 @@ library(tm)
 library(SnowballC)
 library(RWeka) # n-grams
 library(wordcloud2) # wordcloud
+library(wordcloud)
+library(knitr)
+library(tidytext)
+library(dplyr)
+library(data.table)
+library(wordcloud)
+library(RColorBrewer)
+library(tidyr)
+library(igraph)
+library(ggraph)
 ```
 ```{r, functionResume, echo=FALSE}
 # quick overwiew of datas
@@ -314,6 +324,7 @@ Has to write number of lines in a column, then the text dataset in an other, unl
 library(tidytext)
 library(dplyr)
 library(data.table)
+twitTest <- sample(twit, 20000, replace=F)
 head(twitTest)
 dfTwit <- data.table(line=1:20000, text=twitTest)
 str(dfTwit)
@@ -361,12 +372,22 @@ data(stop_words)
 tidyText %>% 
     anti_join(stop_words) %>%
     count(word, sort=TRUE) %>%
-    filter(n>50) %>%
+    filter(n>150) %>%
     mutate(word=reorder(word,n)) %>%
     ggplot(aes(word,n)) +
-    geom_bar(stat="identity") +
+    geom_bar(stat="identity", fill="green", color="black", alpha=0.6) +
     xlab(NULL) +
+    theme(axis.text.y = element_text(size=10)) +
     coord_flip()
+```
+```{r, wordcloudTT, message=FALSE, fig.align="center"}
+library(wordcloud)
+library(RColorBrewer)
+countTidyText <- tidyText %>% anti_join(stop_words) %>%
+    count(word, sort=T)
+countTidyText
+# wordcloud(as.data.frame(countTidyText), size=0.6)
+wordcloud(words=countTidyText$word, freq=countTidyText$n, max.words=150, random.order=F, rot.per=0.4, scale=c(5,0.5), colors=brewer.pal(8,"Dark2"))
 ```
 
 ### Relations between words
@@ -396,13 +417,43 @@ filtered_bigrams <- separate_bigrams %>%
     filter(!word1 %in% stop_words$word) %>%
     filter(!word2 %in% stop_words$word)
 # new count
-filtered_bigrams %>% count(word1, word2, sort=T)
+filtered_bigrams %>% count(word1, word2, sort=TRUE)
+```
+
+Then `unite()` from the `tidyr` package to merge column and plot a wordcloud of most commons bigrams.
+```{r}
+united_bigrams <- filtered_bigrams %>%
+    unite(bigram, word1, word2, sep=" ") 
+counted_bigrams <- united_bigrams %>%
+    count(bigram, sort=TRUE)
+wordcloud(words=counted_bigrams$bigram, freq=counted_bigrams$n, max.words=150, random.order=F, rot.per=0.35, scale=c(5,0.5), colors=brewer.pal(8,"Dark2"))
+```
+
+#### Network of bigrams
+Network of bigrams can be drawn with `graph_from_data_frame()` function from the `igraph` package, and `ggraph()` from `ggraph` package.
+```{r}
+library(igraph)
+filtered_bigrams
+graph_bigrams <- filtered_bigrams %>%
+    count(word1, word2, sort=TRUE) %>%
+    filter(n>=8) %>%
+    graph_from_data_frame()
+graph_bigrams
+
+library(ggraph)
+a <- grid::arrow(type="open", angle=15, length=unit(.15, "inches"))
+ggraph(graph_bigrams, layout="fr") +
+    geom_edge_link(aes(edge_alpha=n), show.legend=FALSE, arrow=a) +
+    geom_node_point(color="lightgreen", size=2) +
+    geom_node_text(aes(label=name), vjust=1, hjust=1) +
+    theme_void()
 ```
 
 
 ## quanteda package
 ***
 Source : [get started with quanteda](https://cran.r-project.org/web/packages/quanteda/vignettes/quickstart.html)
+Another package to create and work with corpus.
 
 
 
