@@ -18,15 +18,21 @@ knitr::opts_chunk$set(comment=NA, echo=FALSE, message=FALSE)
 ```{r, libraries}
 library(doMC) # multicore computation
 library(stringr) # wordcount
-library(tm)
-library(SnowballC)
-library(RWeka) # n-grams
-library(wordcloud2) # wordcloud
+library(data.table)
+library(tidytext)
+library(dplyr)
+library(qdap)
+library(wordcloud)
+library(RColorBrewer)
+library(ggplot2)
 ```
 ```{r, functionResume, echo=FALSE}
 library(doMC)
 registerDoMC(cores=6) # parallel computation
 
+############################################################
+# OVERVIEW
+############################################################
 overview <- function(texte) {
     data.frame(total.Lines=length(texte), total.words=sum(str_count(texte,'\\w+')), mean.word.by.line=mean(str_count(texte,'\\w+')), sd.of.mean=sd(str_count(texte,'\\w+')), max.word.by.line=max(str_count(texte,'\\w+')))
 }
@@ -44,17 +50,28 @@ multiOverview <- function(liste) {
     dataSum
 }
 
-# preprocess text file
-tidyNGram <- function(texte, lang="en", stopword=TRUE, stemwords=FALSE, n.gram=1) {
-    # take a text file, and return a possibly clean and stemmed tidy table depending if chosen options 
+############################################################
+# CREATE TIDY NGRAMS 
+############################################################
+tidyNGram <- function(texte, lang="en", rmStopword=FALSE, stemwords=TRUE, n.gram=1) {
+    # take a text file, and return a possibly clean without stopwords and stemmed tidy table depending if chosen options 
     library(data.table)
-    library(tm)
     library(tidytext)
     library(dplyr)
-    texte <- removeNumbers(texte)
-    texte <- tolower(texte)
-    if(stopword==FALSE){
-        texte <- removeWords(texte, stopwords(lang))
+    library(qdap)
+    texte <- texte %>% 
+        replace_contraction() %>%
+        tolower() %>%
+        replace_number(remove=TRUE) %>%
+        replace_ordinal(remove=TRUE) %>%
+        replace_symbol() %>% replace_abbreviation()
+
+    #### ADD STEMMING FUNCTION : as root is written, model could predict the next word...
+    if(rmStopword==TRUE){
+        texte <- rm_stopwords(texte, separate=FALSE)
+    } 
+    if(stemwords==TRUE){
+        texte <- stemmer(texte)
     }
     len <- length(texte)
     textFile <- data.table()
@@ -64,6 +81,9 @@ tidyNGram <- function(texte, lang="en", stopword=TRUE, stemwords=FALSE, n.gram=1
     tidyText
 }
 
+############################################################
+# PLOT MOST COMMON NGRAMS
+############################################################
 countPlot <- function(tidyText, nb=75){
     # take a tidyText a plot the n most commons words or ngrams with ggplot
     library(dplyr)
@@ -79,6 +99,9 @@ countPlot <- function(tidyText, nb=75){
         coord_flip()
 }
 
+############################################################
+# PLOT WORDCLOUD
+############################################################
 wordCloudPlot <- function(tidyText, nb=100) {
     # take a tidyText and plot a wordCloud of n most common words or ngrams
     library(wordcloud)
@@ -87,6 +110,9 @@ wordCloudPlot <- function(tidyText, nb=100) {
     wordcloud(words=tidyText$ngram, freq=tidyText$n, max.words=nb, random.order=F, rot.per=0.4, scale=c(5,0.5), colors=brewer.pal(8,"Dark2"))
 }
 
+############################################################
+# PLOT NGRAM COVERAGE
+############################################################
 cumulativePlot <- function(tidyText, n1=50, n2=90) {
     # take a tidyText and plot a cumulative plot with nb of unique words to cover n1 and n1 % of total words
     library(dplyr)
@@ -100,13 +126,42 @@ cumulativePlot <- function(tidyText, n1=50, n2=90) {
 
     tidyText %>%
         ggplot(aes(1:nrow(tidyText), cumulative_percent)) +
-        geom_point(size=0.2) + xlab("Number of unique words") +
+        geom_point(size=0.2) + xlab("Number of unique ngrams") +
         ylab("Cumulative percentage (%)") +
         geom_hline(yintercept=n1, col="orange") +
         geom_vline(xintercept=x1, col="orange") +
         geom_hline(yintercept=n2, col="green") +
         geom_vline(xintercept=x2, col="green") +
         scale_x_continuous(breaks=c(x1,x2))
+}
+############################################################
+# PLOT RELATIONSHIP BETWEEN NGRAMS
+############################################################
+relationPlot <- function(tidyText, nb=100) {
+    library(igraph)
+    library(ggraph)
+    library(stringr)
+    library(tidyr)
+    # take a tidy ngram and plot relationship between the nb most common words
+    # separate column and prepare for plotting
+    nbCol <- str_count(tidyText$ngram[1], '\\w+')
+    name <- NULL
+    for(i in 1:nbCol){
+        name <- c(name,paste("word",i, sep=""))
+    }
+    tidyText <- tidyText %>% 
+        count(ngram, sort=T) %>%
+        separate(col=ngram, into=name, sep=" ") %>%
+        slice(1:nb) %>%
+        graph_from_data_frame()
+
+    # plot relationship between words
+    a <- grid::arrow(type="open", angle=15, length=unit(.15, "inches"))
+    ggraph(tidyText, layout="fr") +
+        geom_edge_link(aes(edge_alpha=n), show.legend=FALSE, arrow=a) +
+        geom_node_point(color="lightgreen", size=2) +
+        geom_node_text(aes(label=name), vjust=1, hjust=1, color="red") +
+        theme_void()
 }
 ```
 
@@ -120,9 +175,14 @@ These datasets contain several sentences and millions of words, and cover three 
 - a news datasets, with another different vocabulary.
 
 
-After some cleaning by removing "noise" (punctuation, typo, uppercase, numbers and whitespaces), the most frequents words will be plotted with barplots and cloudwords for each datasets.
-Note that, unusualy, the common words aren't removed, as people write them and wish to have predictions after them.
-The datasets aren't merged too, in order to propose a prediction for each semantic field covered by the three datasets.  
+After some cleaning by removing "noise" (punctuation, typo, uppercase, numbers and whitespaces), the most frequents words will be plotted with barplots and cloudwords for each datasets.  
+Note that, unusualy :
+
+- the common words aren't removed, as people write them and wish to have predictions after them, but negatives words "not" is removed as it doesn't change the possible predictions.
+- words are stemmed, in order to have some predictions as soon as the root of the word is typed.
+- the datasets aren't merged too, in order to propose a prediction for each semantic field covered by the three datasets.
+
+
 Finally, this choices will lead to the next step of the project : building the predictive algorithm.
 
 ## Decision to make
@@ -140,13 +200,14 @@ Finally, this choices will lead to the next step of the project : building the p
 
 1. Stemming or not ?
       - Good to unite declinaison of words, and remove some typos ?
+    - As people has written the root of the words, predictions could be made.
+
 
 # Datas overview
 
 ## What are the datas ?
 Example of the datas provided and some stats about the number of words, which are of interest for predictive text purposes.
 ```{r, readData, cache=TRUE}
-library(tm)
 twit <- readLines("../text/en_US.twitter.txt", skipNul=TRUE)
 blog <- readLines("../text/en_US.blogs.txt", skipNul=TRUE)
 nouvelles <- readLines("../text/en_US.news.txt", skipNul=TRUE)
@@ -175,7 +236,7 @@ As numbers of words are quite important, the work will be done on a sample with 
 The following hypothesis are done too :
 
 - the vocabulary and the semantics fields are different between each datasets
-  - the twit dataset should contains more typo and abbreviations than the two others, because of the character limitation of twitter
+- the twit dataset should contains more typo and abbreviations than the two others, because of the character limitation of twitter
     
 As people are writing in each semantic field, the datasets will not be merged in order to predict words for each field.
 
@@ -183,7 +244,7 @@ As people are writing in each semantic field, the datasets will not be merged in
 
 Select random sample for testing process and functions :
 ```{r, testCorpus}
-library(tm)
+library(stringr)
 set.seed(2704)
 twitTest <- sample(twit, 20000, replace=T)
 ```
@@ -214,15 +275,7 @@ To illustrate before and after the processing :
 ## Frequencies of words and wordcloud
 
 ### Distribution of frequencies of words
-Document matrix is a table containing the frequency of words.  
-Use *TermDocumentMatrix()* from the tm package.
 ```{r, matrixTdm, results="asis", eval=FALSE}
-m <- as.matrix(tdm)
-v <- sort(rowSums(m), decreasing=T)
-d <- data.frame(word=names(v), freq=v, percent=v/sum(v)*100,
-                cumulative_percent=cumsum(v/sum(v)*100))
-knitr::kable(head(d), row.names=F)
-knitr::kable(tail(d), row.names=F)
 ```
 
 ```{r, histo, eval=FALSE}
