@@ -27,11 +27,6 @@ library(wordcloud2) # wordcloud
 library(doMC)
 registerDoMC(cores=6) # parallel computation
 
-# quick overwiew of datas
-# overviewfull <- function(texte) {
-    # data.frame(lines=length(texte), meanChar=mean(nchar(texte)), sdChar=sd(nchar(texte)), minChar=min(nchar(texte)), maxChar=max(nchar(texte)))
-# }
-
 overview <- function(texte) {
     data.frame(total.Lines=length(texte), total.words=sum(str_count(texte,'\\w+')), mean.word.by.line=mean(str_count(texte,'\\w+')), sd.of.mean=sd(str_count(texte,'\\w+')), max.word.by.line=max(str_count(texte,'\\w+')))
 }
@@ -50,52 +45,68 @@ multiOverview <- function(liste) {
 }
 
 # preprocess text file
-cleanCorpus <- function(textFile, lang="english", stopwords=FALSE, stemDoc=FALSE) {
-    # take a text file or a text variable, and a language, and return a clean and stemmed corpus 
+tidyNGram <- function(texte, lang="en", stopword=TRUE, stemwords=FALSE, n.gram=1) {
+    # take a text file, and return a possibly clean and stemmed tidy table depending if chosen options 
+    library(data.table)
     library(tm)
-    library(SnowballC)
-    if(length(textFile)==1) {
-        # textFile is a path to file must be read
-        texte <- readLines(textFile, skipNul=TRUE)
-    } else {
-        # textFile is a variable already read
-        texte <- textFile
+    library(tidytext)
+    library(dplyr)
+    texte <- removeNumbers(texte)
+    texte <- tolower(texte)
+    if(stopword==FALSE){
+        texte <- removeWords(texte, stopwords(lang))
     }
-    # create corpus with file
-    corpus <- VCorpus(VectorSource(texte))
-    # clean and stem corpus
-    corpus <- tm_map(corpus, content_transformer(tolower))
-    corpus <- tm_map(corpus, removePunctuation)
-    corpus <- tm_map(corpus, removeNumbers)
-    if(stopwords==TRUE){
-        corpus <- tm_map(corpus, removeWords, stopwords(lang))
-    }
-    if(stemDoc==TRUE){
-        corpus <- tm_map(corpus, stemDocument, language=lang)
-    }
-    corpus <- tm_map(corpus, stripWhitespace)
-    corpus
+    len <- length(texte)
+    textFile <- data.table()
+    textFile <- data.table(line=1:len, text=texte)
+    tidyText <- textFile %>% 
+        unnest_tokens(ngram, text, token="ngrams", n=n.gram)
+    tidyText
 }
 
-cleanDF <- function(tdm) {
-    # take a tdm and return a dataframe with words/ngrams and ordered frequencies
-    m <- as.matrix(tdm)
-    v <- sort(rowSums(m), decreasing=T)
-    d <- data.frame(word=names(v), freq=v, percent=v/sum(v)*100,
-                    cumulative_percent=cumsum(v/sum(v)*100))
-    d
+countPlot <- function(tidyText, nb=75){
+    # take a tidyText a plot the n most commons words or ngrams with ggplot
+    library(dplyr)
+    library(ggplot2)
+    tidyText %>%
+        count(ngram, sort=TRUE) %>%
+        mutate(ngram=reorder(ngram,n)) %>%
+        slice(1:nb) %>%
+        ggplot(aes(ngram,n)) +
+        geom_bar(stat="identity", fill="lightgreen", color="green", alpha=0.6) +
+        xlab(NULL) +
+        theme(axis.text.y = element_text(size=8)) +
+        coord_flip()
 }
 
-tdmNgram <- function(corpus, nb=2){
-    # take a corpus, min and max length of ngram, and return a tdm of ngrams
-    library(tm)
-    library(RWeka)
-    options(mc.cores=1)
-    ngramControl <- function(x) {
-        RWeka::NGramTokenizer(x, Weka_control(min=nb, max=nb))
-    }
-    tdm <- TermDocumentMatrix(corpus, control=list(tokenize=ngramControl))
-    tdm
+wordCloudPlot <- function(tidyText, nb=100) {
+    # take a tidyText and plot a wordCloud of n most common words or ngrams
+    library(wordcloud)
+    library(RColorBrewer)
+    tidyText <- tidyText %>% count(ngram, sort=TRUE)
+    wordcloud(words=tidyText$ngram, freq=tidyText$n, max.words=nb, random.order=F, rot.per=0.4, scale=c(5,0.5), colors=brewer.pal(8,"Dark2"))
+}
+
+cumulativePlot <- function(tidyText, n1=50, n2=90) {
+    # take a tidyText and plot a cumulative plot with nb of unique words to cover n1 and n1 % of total words
+    library(dplyr)
+    tidyText <- tidyText %>% count(ngram, sort=TRUE) %>%
+        mutate(ngram=reorder(ngram,n)) %>%
+        mutate(percent=n/sum(n)*100) %>%
+        mutate(cumulative_percent=cumsum(percent))
+
+    x1 <- which(tidyText$cumulative_percent>n1)[1]
+    x2 <- which(tidyText$cumulative_percent>n2)[1]
+
+    tidyText %>%
+        ggplot(aes(1:nrow(tidyText), cumulative_percent)) +
+        geom_point(size=0.2) + xlab("Number of unique words") +
+        ylab("Cumulative percentage (%)") +
+        geom_hline(yintercept=n1, col="orange") +
+        geom_vline(xintercept=x1, col="orange") +
+        geom_hline(yintercept=n2, col="green") +
+        geom_vline(xintercept=x2, col="green") +
+        scale_x_continuous(breaks=c(x1,x2))
 }
 ```
 
@@ -175,8 +186,6 @@ Select random sample for testing process and functions :
 library(tm)
 set.seed(2704)
 twitTest <- sample(twit, 20000, replace=T)
-twitCTest <- VCorpus(VectorSource(twitTest))
-twitCTest[[27]]$content
 ```
 
 ## PreProcessing - cleaning datasets
@@ -186,15 +195,8 @@ In order to show the most frequent words, a cleaning must be done to avoid noise
 
 Detailed and teaching process for a limited testing dataset (twitCtest). Use functions at the end of document to process on full datasets.
 
-```{r}
-twitClean <- cleanCorpus(twitCTest)
-```
 
 To illustrate before and after the processing :
-```{r, compareResults, results="asis"}
-result <- data.frame(before=twitCTest[[27]]$content, after=twitClean[[27]]$content)
-knitr::kable(result, row.names=F)
-```
 
 # Exploratory Analysis
 
@@ -214,11 +216,7 @@ knitr::kable(result, row.names=F)
 ### Distribution of frequencies of words
 Document matrix is a table containing the frequency of words.  
 Use *TermDocumentMatrix()* from the tm package.
-```{r, tdm}
-tdm <- TermDocumentMatrix(twitClean)
-tdm
-```
-```{r, matrixTdm, results="asis"}
+```{r, matrixTdm, results="asis", eval=FALSE}
 m <- as.matrix(tdm)
 v <- sort(rowSums(m), decreasing=T)
 d <- data.frame(word=names(v), freq=v, percent=v/sum(v)*100,
@@ -227,41 +225,24 @@ knitr::kable(head(d), row.names=F)
 knitr::kable(tail(d), row.names=F)
 ```
 
-```{r, histo}
+```{r, histo, eval=FALSE}
 breakNb <- 1:d[1,]$freq
 hist(d$freq, breaks=breakNb, freq=FALSE, col="lightgreen", border="black",
      main="Distribution of frequencies", xlab="words frequencies")
 ```
 
 ### Minimum unique words to cover distribution
-```{r, coverWords, results="asis"}
-# could do a function to choose the coverage value.
-plot(d$cumulative_percent, pch=20, xlab="number of unique words", ylab="words coverage (%)")
-abline(h=50, col="orange")
-abline(v=which(d$cumulative_percent > 50)[1], col="orange")
-abline(h=90, col="red")
-abline(v=which(d$cumulative_percent > 90)[1], col="red")
-
-index50 <- which(d$cumulative_percent > 50)[1]
-index90 <- which(d$cumulative_percent > 90)[1]
-
-coverWords <- data.frame(percent50=index50, percent90=index90)
-row.names(coverWords) <- "number of unique words"
-knitr::kable(coverWords)
+```{r, coverWords, results="asis", eval=FALSE}
 ```
 
 ### Plot most frequents words
 
-```{r, mostFrequent, fig.align="center"}
-barplot(d[1:30,]$percent, names.arg=d[1:30,]$word, col="lightblue", las=2,
-        main="30 most frequent words", ylab="word frequencies (%)")
+```{r, mostFrequent, fig.align="center", eval=FALSE}
 ```
 
 ### Generate Wordcloud
 Visual funny representation, use the *wordcloud2()* function of the wordcloud2 package.
-```{r, wordcloud, message=FALSE, fig.align="center"}
-library(wordcloud2)
-wordcloud2(d[1:200,], size=0.6)
+```{r, wordcloud, message=FALSE, fig.align="center", eval=FALSE}
 ```
 
 ## 2 and 3-grams
@@ -270,24 +251,6 @@ Use the *weka()* function of the RWeka package with tm().
 
 ```{r, ngram, results="asis", cache=TRUE}
 
-tdmNgram <- function(corpus, nb=2){
-    # take a corpus, min and max length of ngram, and return a tdm of ngrams
-    library(RWeka)
-    library(tm)
-    options(mc.cores=1)
-    # http://stackoverflow.com/questions/17703553/bigrams-instead-of-single-words-in-termdocument-matrix-using-r-and-rweka/20251039#20251039
-    ngramControl <- function(x) {
-        RWeka::NGramTokenizer(x, Weka_control(min=nb, max=nb))
-    }
-    tdm <- TermDocumentMatrix(corpus, control=list(tokenize=ngramControl))
-    tdm
-}
-
-twoGram <- tdmNgram(twitClean, 2)
-knitr::kable(head(cleanDF(twoGram)), row.names=F)
-
-threeGram <- tdmNgram(twitClean, 3)
-knitr::kable(head(cleanDF(threeGram)), row.names=F)
 ```
 
 ## Terms associations
@@ -295,32 +258,17 @@ knitr::kable(head(cleanDF(threeGram)), row.names=F)
 ### Explore associations
 
 ```{r}
-findFreqTerms(tdm, lowfreq=10)
-findAssocs(tdm, terms="people", corlimit=0.6)
 ```
 
-# Sources : 
+# Sources
+Source : [tidytextmining.com](http://tidytextmining.com/)
 
-- [data.bzh](http://data-bzh.fr/?s=text+mining)
-- [whatsupdata.fr](http://whatsupdata.fr/content/le-text-mining-et-la-d%C3%A9couverte-des-principales-%C2%AB-th%C3%A9matiques-%C2%BB-d%E2%80%99un-corpus-de-documents)
-- [gentle introduction to text mining using R](https://eight2late.wordpress.com/2015/05/27/a-gentle-introduction-to-text-mining-using-r/)
-- [gentle introduction to topic modeling using R](https://eight2late.wordpress.com/?s=topic+model)
-- [R code : reading, preprocessing and counting](http://www.katrinerk.com/courses/words-in-a-haystack-an-introductory-statistics-course/schedule-words-in-a-haystack/r-code-the-text-mining-package)
 
 # Code Resume
 
 ## Libraries
-```{r, ref.label="libraries", echo=TRUE, eval=FALSE}
-```
 
 ## Functions
 
-```{r, ref.label="functionResume", echo=TRUE, eval=FALSE}
-```
-
 ## Datas Summaries
-```{r, ref.label="readData", echo=TRUE, eval=FALSE}
-```
-```{r, ref.label="overwiew", echo=TRUE, eval=FALSE}
-```
 

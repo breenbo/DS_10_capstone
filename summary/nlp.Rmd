@@ -109,6 +109,7 @@ tdmNgram <- function(corpus, nb=2){
 # Packages {.tabset .tabset-fade .tabset-pills}
 
 ## Create corpus
+***
 
 ```{r, readData, cache=TRUE}
 library(tm)
@@ -143,6 +144,7 @@ grep("A computer once beat me at chess, but it was no match for me at kickboxing
 ```
 
 ## tm package
+***
 
 ### Sources
 
@@ -344,6 +346,8 @@ Note that :
 - unnest_tokens converts the token to lower case.
 - numbers are removed with the `filter()` and `grepl()` functions, and a regexp.
 
+BETTER TO REMOVE NUMBERS, STOPWORDS, ABBREVIATIONS, ETC WITH QDAP PAQUAGE...
+
 Many options available to tweak default behaviour.
 Easy to use tiny method like dplyr, tidyr, ggplot2 and broom.  
 
@@ -426,7 +430,7 @@ united_bigrams <- filtered_bigrams %>%
     unite(bigram, word1, word2, sep=" ") 
 counted_bigrams <- united_bigrams %>%
     count(bigram, sort=TRUE)
-wordcloud(words=counted_bigrams$bigram, freq=counted_bigrams$n, max.words=150, random.order=F, rot.per=0.35, scale=c(5,0.5), colors=brewer.pal(8,"Dark2"))
+wordcloud(words=counted_bigrams$bigram, freq=counted_bigrams$n, max.words=150, random.order=F, rot.per=0.35, scale=c(3,0.5), colors=brewer.pal(8,"Dark2"))
 ```
 
 #### Network of bigrams
@@ -436,7 +440,7 @@ library(igraph)
 filtered_bigrams
 graph_bigrams <- filtered_bigrams %>%
     count(word1, word2, sort=TRUE) %>%
-    filter(n>=8) %>%
+    filter(n>=10) %>%
     graph_from_data_frame()
 graph_bigrams
 
