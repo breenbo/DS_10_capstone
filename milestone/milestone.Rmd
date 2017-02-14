@@ -13,18 +13,23 @@ output:
 
 
 ```{r globalOptions, echo=FALSE}
-knitr::opts_chunk$set(comment=NA, echo=FALSE, message=FALSE)
+knitr::opts_chunk$set(comment=NA, echo=FALSE, message=FALSE, warning=FALSE)
 ```
 ```{r, libraries}
-library(doMC) # multicore computation
-library(stringr) # wordcount
+library(cowplot)
 library(data.table)
-library(tidytext)
+library(doMC) # multicore computation
 library(dplyr)
-library(qdap)
-library(wordcloud)
-library(RColorBrewer)
 library(ggplot2)
+library(ggraph)
+library(igraph)
+library(knitr)
+library(qdap)
+library(RColorBrewer)
+library(stringr) # wordcount
+library(tidyr)
+library(tidytext)
+library(wordcloud)
 ```
 ```{r, functionResume, echo=FALSE}
 library(doMC)
@@ -84,17 +89,25 @@ tidyNGram <- function(texte, lang="en", rmStopword=FALSE, stemwords=TRUE, n.gram
 ############################################################
 # PLOT MOST COMMON NGRAMS
 ############################################################
-countPlot <- function(tidyText, nb=75){
+countPlot <- function(tidyText, nb=50){
     # take a tidyText a plot the n most commons words or ngrams with ggplot
     library(dplyr)
     library(ggplot2)
+    nbgram <- str_count(tidyText$ngram[1], '\\w+')
+    if(nbgram==1){
+        graphTitle <- paste(nb, "most commons words.")
+    } else {
+        graphTitle <- paste(nb, " most commons ",nbgram,"-grams", sep="")
+    }
     tidyText %>%
         count(ngram, sort=TRUE) %>%
         mutate(ngram=reorder(ngram,n)) %>%
+        mutate(percent=n/sum(n)*100) %>%
         slice(1:nb) %>%
-        ggplot(aes(ngram,n)) +
-        geom_bar(stat="identity", fill="lightgreen", color="green", alpha=0.6) +
+        ggplot(aes(ngram,percent)) +
+        geom_bar(stat="identity", fill="lightgreen", color="black") +
         xlab(NULL) +
+        ggtitle(graphTitle) +
         theme(axis.text.y = element_text(size=8)) +
         coord_flip()
 }
@@ -107,12 +120,40 @@ wordCloudPlot <- function(tidyText, nb=100) {
     library(wordcloud)
     library(RColorBrewer)
     tidyText <- tidyText %>% count(ngram, sort=TRUE)
-    wordcloud(words=tidyText$ngram, freq=tidyText$n, max.words=nb, random.order=F, rot.per=0.4, scale=c(5,0.5), colors=brewer.pal(8,"Dark2"))
+    wordcloud(words=tidyText$ngram, freq=tidyText$n, max.words=nb, random.order=F, rot.per=0.35, scale=c(5,0.5), colors=brewer.pal(8,"Dark2"))
 }
 
 ############################################################
 # PLOT NGRAM COVERAGE
 ############################################################
+coverWords <- function(tidyText, n1=50, n2=90) {
+    # take a tidyText and return a data.frame with numbers of unique words to describe n1 and n2 % of the total dataset.
+    library(dplyr)
+    tidyText <- tidyText %>% count(ngram, sort=TRUE) %>%
+        mutate(ngram=reorder(ngram,n)) %>%
+        mutate(percent=n/sum(n)*100) %>%
+        mutate(cumulative_percent=cumsum(percent))
+
+    x1 <- which(tidyText$cumulative_percent>n1)[1]
+    x2 <- which(tidyText$cumulative_percent>n2)[1]
+    results <- data.frame(x1,x2, dim(tidyText)[1])
+
+    name.x1 <- paste(n1,"percent")
+    name.x2 <- paste(n2,"percent")
+
+    nbgram <- str_count(tidyText$ngram[1], '\\w+')
+    if(nbgram==1){
+        names(results) <- c(name.x1, name.x2, 'total unique words')
+        row.names(results) <- "Number of unique words"
+    } else {
+        # name.x3 <- paste('total unique ',nbgram,'-grams', sep="")
+        name.x3 <- "total unique ngrams"
+        names(results) <- c(name.x1, name.x2, name.x3)
+        row.names(results) <- paste("Number of unique ",nbgram,"-grams", sep="")
+    }
+    results
+}
+
 cumulativePlot <- function(tidyText, n1=50, n2=90) {
     # take a tidyText and plot a cumulative plot with nb of unique words to cover n1 and n1 % of total words
     library(dplyr)
@@ -123,16 +164,29 @@ cumulativePlot <- function(tidyText, n1=50, n2=90) {
 
     x1 <- which(tidyText$cumulative_percent>n1)[1]
     x2 <- which(tidyText$cumulative_percent>n2)[1]
+    x3 <- dim(tidyText)[1]
+
+    nbgram <- str_count(tidyText$ngram[1], '\\w+')
+    if(nbgram==1){
+        xLab <- "Number of unique words"
+        graphTitle <- "Coverage of unique words"
+    } else {
+        xLab <- paste("Number of unique ",nbgram,"-grams", sep="")
+        graphTitle <- paste("Coverage of unique ",nbgram,"-grams", sep="")
+    }
 
     tidyText %>%
         ggplot(aes(1:nrow(tidyText), cumulative_percent)) +
-        geom_point(size=0.2) + xlab("Number of unique ngrams") +
+        geom_point(size=0.2) + xlab(NULL) + ggtitle(graphTitle) +
         ylab("Cumulative percentage (%)") +
         geom_hline(yintercept=n1, col="orange") +
         geom_vline(xintercept=x1, col="orange") +
         geom_hline(yintercept=n2, col="green") +
         geom_vline(xintercept=x2, col="green") +
-        scale_x_continuous(breaks=c(x1,x2))
+        geom_vline(xintercept=x3, col="black") +
+        scale_x_continuous(breaks=c(x1,x2,x3)) +
+        theme(axis.text.x=element_text(angle=30, hjust=1)) +
+        scale_y_continuous(breaks=c(n1,n2,100))
 }
 ############################################################
 # PLOT RELATIONSHIP BETWEEN NGRAMS
@@ -160,7 +214,8 @@ relationPlot <- function(tidyText, nb=100) {
     ggraph(tidyText, layout="fr") +
         geom_edge_link(aes(edge_alpha=n), show.legend=FALSE, arrow=a) +
         geom_node_point(color="lightgreen", size=2) +
-        geom_node_text(aes(label=name), vjust=1, hjust=1, color="red") +
+        # geom_node_text(aes(label=name), vjust=1, hjust=1, color="red") +
+        geom_node_text(aes(label=name), repel=TRUE, color="red") +
         theme_void()
 }
 ```
@@ -179,11 +234,12 @@ After some cleaning by removing "noise" (punctuation, typo, uppercase, numbers a
 Note that, unusualy :
 
 - the common words aren't removed, as people write them and wish to have predictions after them, but negatives words "not" is removed as it doesn't change the possible predictions.
-- words are stemmed, in order to have some predictions as soon as the root of the word is typed.
-- the datasets aren't merged too, in order to propose a prediction for each semantic field covered by the three datasets.
+- words are stemmed (shortened to their root), in order to have some predictions as soon as the root of the word is typed.
+- the raws datasets aren't merged, but a random sample of each of them is taken, in order to cover the three semantics fields, then merged.
 
 
-Finally, this choices will lead to the next step of the project : building the predictive algorithm.
+Finally, this choices will lead to the next step of the project : building the predictive algorithm.  
+All code is available at the end of the report.
 
 ## Decision to make
 
@@ -210,21 +266,21 @@ Example of the datas provided and some stats about the number of words, which ar
 ```{r, readData, cache=TRUE}
 twit <- readLines("../text/en_US.twitter.txt", skipNul=TRUE)
 blog <- readLines("../text/en_US.blogs.txt", skipNul=TRUE)
-nouvelles <- readLines("../text/en_US.news.txt", skipNul=TRUE)
+news <- readLines("../text/en_US.news.txt", skipNul=TRUE)
 ```
 
 Example of lines for each datasets are shown below :  
 ```{r, sample, cache=TRUE}
 twit[1]
 blog[1]
-nouvelles[1]
+news[1]
 ```
 
 
 Quick exploratory of the numbers of words for each lines and for each datasets.
 ```{r, overview, results="asis", cache=TRUE}
 # function to view some stats
-liste <- c("twit", "blog", "nouvelles")
+liste <- c("twit", "blog", "news")
 datasum <- multiOverview(liste)
 # view results
 library(knitr)
@@ -232,7 +288,7 @@ knitr::kable(datasum, format.args=list(big.mark=","), digits=2)
 ```
 
 
-As numbers of words are quite important, the work will be done on a sample with a good representativeness of the total datas (`power.test()` function).
+As numbers of words are quite important, the work will be done on a sample with a good representativeness of the total datas.
 The following hypothesis are done too :
 
 - the vocabulary and the semantics fields are different between each datasets
@@ -240,24 +296,32 @@ The following hypothesis are done too :
     
 As people are writing in each semantic field, the datasets will not be merged in order to predict words for each field.
 
-### DO A POWER TEST AROUND MEAN TO CHOOSE SAMPLE SIZE WITH CONFIDENCE OF 95%.
 
 Select random sample for testing process and functions :
-```{r, testCorpus}
+```{r, tidySets, cache=TRUE}
 library(stringr)
 set.seed(2704)
-twitTest <- sample(twit, 20000, replace=T)
+twitTest <- sample(twit, 20000, replace=F)
+blogTest <- sample(blog, 20000, replace=F)
+newsTest <- sample(news, 20000, replace=F)
+
+twitTidy <- tidyNGram(twitTest)
+blogTidy <- tidyNGram(blogTest)
+newsTidy <- tidyNGram(newsTest)
+```
+```{r, tidyStop, cache=TRUE}
+twitStopTidy <- tidyNGram(twitTest, rmStopword=TRUE)
+blogStopTidy <- tidyNGram(blogTest, rmStopword=TRUE)
+newsStopTidy <- tidyNGram(newsTest, rmStopword=TRUE)
+```
+```{r, uniqueSample}
+uniqueSample <- rbind(twitTidy, blogTidy, newsTidy)
 ```
 
 ## PreProcessing - cleaning datasets
-In order to show the most frequent words, a cleaning must be done to avoid noise with uppercase, punctuation, typos or numbers.
+In order to show the most frequent words, a cleaning must be done to avoid noise with uppercase, punctuation, typos or numbers.  
+All the code of the cleaning is available at the end of the report.
 
-### USE CLEAN FUNCTION, DON'T REMOVE STOPWORDS IN BEGINNING, TRY STEMMING AFTER
-
-Detailed and teaching process for a limited testing dataset (twitCtest). Use functions at the end of document to process on full datasets.
-
-
-To illustrate before and after the processing :
 
 # Exploratory Analysis
 
@@ -274,43 +338,88 @@ To illustrate before and after the processing :
 
 ## Frequencies of words and wordcloud
 
-### Distribution of frequencies of words
-```{r, matrixTdm, results="asis", eval=FALSE}
+### Most commons words
+```{r, histo}
+countPlot(uniqueSample)
+wordCloudPlot(uniqueSample, nb=200)
 ```
 
-```{r, histo, eval=FALSE}
-breakNb <- 1:d[1,]$freq
-hist(d$freq, breaks=breakNb, freq=FALSE, col="lightgreen", border="black",
-     main="Distribution of frequencies", xlab="words frequencies")
-```
+
+As seen below the results aren't very interesting, because the most commons words are... common words, like 'the' or 'a' or 'and'. But they are needed as people type them and might need a prediction for them.
+Studying the distribution of only one words is not a solution for a predictive software.  
+
 
 ### Minimum unique words to cover distribution
-```{r, coverWords, results="asis", eval=FALSE}
+Some interesting results : the numbers of unique words to describe 90 % of the total words is not so important, as seen in the following plots and tables.
+```{r, coverWords}
+# cumulativePlot(twitTidy)
+# cumulativePlot(blogTidy)
+# cumulativePlot(newsTidy)
+cumulativePlot(uniqueSample)
 ```
 
-### Plot most frequents words
+```{r, summary}
+# twitCover <- coverWords(twitTidy)
+# blogCover <- coverWords(blogTidy)
+# newsCover <- coverWords(newsTidy)
+# uniqueCover <- coverWords(uniqueSample)
 
-```{r, mostFrequent, fig.align="center", eval=FALSE}
+# results <- rbind(twitCover, blogCover, newsCover, uniqueCover)
+# row.names(results) <- c("twitter", "blog","news", "merged")
+knitr::kable(coverWords(uniqueSample))
 ```
 
-### Generate Wordcloud
-Visual funny representation, use the *wordcloud2()* function of the wordcloud2 package.
-```{r, wordcloud, message=FALSE, fig.align="center", eval=FALSE}
-```
+It might be possible to have a good prediction for only few uniques words, as they cover most of the uses.  
+The next step is to study the associations of words in the dataset, to begin to think of a predictive model.
+
 
 ## 2 and 3-grams
-Use the *ngram()* function of the ngram package.  
-Use the *weka()* function of the RWeka package with tm().
+To study associations of words, it's useful to check 'n-grams', which are groups of n words. As for unique words, the mosts commons n-grams and the minimum unique n-grams to cover 90 % of the distribution will be studied.  
+Then a map of words associations can be plotted.
 
-```{r, ngram, results="asis", cache=TRUE}
-
+```{r, bigram, cache=TRUE}
+twitBigram <- tidyNGram(twitTest, n=2)
+blogBigram <- tidyNGram(blogTest, n=2)
+newsBigram <- tidyNGram(newsTest, n=2)
+```
+```{r, uniqueBigram}
+uniqueBigram <- rbind(twitBigram, blogBigram, newsBigram)
+```
+```{r, trigram, cache=TRUE}
+twitTrigram <- tidyNGram(twitTest, n=3)
+blogTrigram <- tidyNGram(blogTest, n=3)
+newsTrigram <- tidyNGram(newsTest, n=3)
+```
+```{r, uniqueTrigram}
+uniqueTrigram <- rbind(twitTrigram, blogTrigram, newsTrigram)
+```
+```{r, countPlot, cache=TRUE}
+# countPlot(uniqueBigram)
+# wordCloudPlot(uniqueBigram)
+# countPlot(uniqueTrigram)
+# wordCloudPlot(uniqueTrigram)
+plot_grid(countPlot(uniqueBigram), countPlot(uniqueTrigram), align='h')
+```
+```{r, ngramPlot, cache=TRUE}
+plotTri <- cumulativePlot(uniqueTrigram) + ylab(NULL)
+plot_grid(cumulativePlot(uniqueBigram), plotTri, align='h')
+# plot_grid(cumulativePlot(uniqueBigram), cumulativePlot(uniqueTrigram))
+resultCover <- rbind(coverWords(uniqueBigram), coverWords(uniqueTrigram))
+knitr::kable(resultCover)
+# test for cache
+# knitr::kable(coverWords(uniqueBigram))
+# knitr::kable(coverWords(uniqueTrigram))
 ```
 
 ## Terms associations
 
 ### Explore associations
-
-```{r}
+Plots of the relationship of the 150 most commons bigrams and trigrams of samples of the 3 datasets.
+```{r, relationPlot, cache=TRUE}
+# need a bigram at least !
+# by default, the relationPlot for 100 most common ngrams.
+relationPlot(uniqueBigram, nb=150)
+relationPlot(uniqueTrigram, nb=150)
 ```
 
 # Sources
@@ -320,8 +429,12 @@ Source : [tidytextmining.com](http://tidytextmining.com/)
 # Code Resume
 
 ## Libraries
+```{r, ref.label="libraries", eval=FALSE, echo=TRUE}
+```
 
 ## Functions
+```{r, ref.label="functionResume", eval=FALSE, echo=TRUE}
+```
 
 ## Datas Summaries
 
