@@ -13,12 +13,15 @@ output:
 
 
 ```{r globalOptions, echo=FALSE}
-knitr::opts_chunk$set(comment=NA, echo=FALSE, message=FALSE, warning=FALSE)
+knitr::opts_chunk$set(comment=NA, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.align='center')
+```
+```{r, multicore}
+library(doMC)
+registerDoMC(cores=6) # parallel computation
 ```
 ```{r, libraries}
 library(cowplot) # mutiple ggplot
 library(data.table)
-library(doMC) # multicore computation
 library(dplyr)
 library(ggplot2)
 library(ggraph) # plot words relationship
@@ -31,10 +34,7 @@ library(tidyr) # separate words of ngrams into columns
 library(tidytext) # for tidy analysis of texts
 library(wordcloud)
 ```
-```{r, functionResume, echo=FALSE}
-library(doMC)
-registerDoMC(cores=6) # parallel computation
-
+```{r, functionResume}
 ############################################################
 # OVERVIEW
 ############################################################
@@ -201,7 +201,7 @@ cumulativePlot <- function(tidyText, n1=50, n2=90) {
         geom_vline(xintercept=x2, col="green") +
         geom_vline(xintercept=x3, col="black") +
         scale_x_continuous(breaks=c(x1,x2,x3)) +
-        theme(axis.text.x=element_text(angle=30, hjust=1)) +
+        theme(axis.text.x=element_text(angle=-30, hjust=0, size=10)) +
         scale_y_continuous(breaks=c(n1,n2,100))
 }
 ############################################################
@@ -242,38 +242,22 @@ relationPlot <- function(tidyText, nb=100) {
 In order to build a predictive algorithm for typed text, three datasets must be analysed to discover relationships between words and group of words.
 These datasets contain several sentences and millions of words, and cover three semantics fields :
 
-- a twitter dataset, with short sentences and abbreviations,
+- a twitter dataset, with short sentences and lots of abbreviations,
 - a blog dataset, with more longer sentences and a different vocabulary,
 - a news datasets, with another different vocabulary.
 
 
-After some cleaning by removing "noise" (punctuation, typo, uppercase, numbers and whitespaces), the most frequents words will be plotted with barplots and cloudwords for each datasets.  
+After some cleaning by removing "noise" (punctuation, typo, uppercase, numbers and extra whitespaces), the most frequents words will be plotted with barplots and cloudwords for each datasets.  
 Note that, unusualy :
 
-- the common words aren't removed, as people write them and wish to have predictions after them, but negatives words "not" is removed as it doesn't change the possible predictions.
+- the common words aren't removed, as people write them and wish to have predictions after them.
 - words are stemmed (shortened to their root), in order to have some predictions as soon as the root of the word is typed.
 - the raws datasets aren't merged, but a random sample of each of them is taken, in order to cover the three semantics fields, then merged.
 
 
 Finally, this choices will lead to the next step of the project : building the predictive algorithm.  
+The study show that a predictive model filtering a (n+1)grams as user type n words could work.
 All code is available at the end of the report.
-
-## Decision to make
-
-1. sample datasets ?
-1. Separate datasets ?
-      - twit are short message with lots of typo, and news / blogs are more developed text
-      - train model on different purposes, for different users.  
-        
-
-1. Remove stopwords ?
-      - People write them, so they may need a prediction for stopwords.  
-      - Try an anlysis without removing to see what's happening.
-
-
-1. Stemming or not ?
-      - Good to unite declinaison of words, and remove some typos ?
-    - As people has written the root of the words, predictions could be made.
 
 
 # Datas overview
@@ -294,8 +278,8 @@ news[1]
 ```
 
 
-Quick exploratory of the numbers of words for each lines and for each datasets.
-```{r, overview, results="asis", cache=TRUE}
+And some quick exploratory of the numbers of words for each lines and for each datasets is shown below :
+```{r, overview, cache=TRUE}
 # function to view some stats
 liste <- c("twit", "blog", "news")
 datasum <- multiOverview(liste)
@@ -304,35 +288,31 @@ library(knitr)
 knitr::kable(datasum, format.args=list(big.mark=","), digits=2)
 ```
 
-
 As numbers of words are quite important, the work will be done on a sample with a good representativeness of the total datas.
 The following hypothesis are done too :
 
 - the vocabulary and the semantics fields are different between each datasets
 - the twit dataset should contains more typo and abbreviations than the two others, because of the character limitation of twitter
     
-As people are writing in each semantic field, the datasets will not be merged in order to predict words for each field.
+The samples randomly take 100,000 lines from each datasets, to cover each semantic field, then merged into a global sample. The statistics summary of the global sample is shown below :
 
-
-Select random sample for testing process and functions :
 ```{r, tidySets, cache=TRUE}
 library(stringr)
 set.seed(2704)
-twitTest <- sample(twit, 20000, replace=F)
-blogTest <- sample(blog, 20000, replace=F)
-newsTest <- sample(news, 20000, replace=F)
+twitTest <- sample(twit, 100000, replace=F)
+blogTest <- sample(blog, 100000, replace=F)
+newsTest <- sample(news, 100000, replace=F)
 
 twitTidy <- tidyNGram(twitTest)
 blogTidy <- tidyNGram(blogTest)
 newsTidy <- tidyNGram(newsTest)
 ```
-```{r, tidyStop, cache=TRUE}
-twitStopTidy <- tidyNGram(twitTest, rmStopword=TRUE)
-blogStopTidy <- tidyNGram(blogTest, rmStopword=TRUE)
-newsStopTidy <- tidyNGram(newsTest, rmStopword=TRUE)
-```
-```{r, uniqueSample}
+```{r, uniqueSample, cache=TRUE}
 uniqueSample <- rbind(twitTidy, blogTidy, newsTidy)
+
+liste2 <- c("twitTest", "blogTest", "newsTest")
+multiOver2 <- multiOverview(liste2)
+knitr::kable(multiOver2[,-1], format.args=list(big.mark=","), digits=2)
 ```
 
 ## PreProcessing - cleaning datasets
@@ -342,59 +322,37 @@ All the code of the cleaning is available at the end of the report.
 
 # Exploratory Analysis
 
-## Questions to consider
-
-- what are the distribution of words frequencies ?
-     + analysis with and without stopwords ?
-- what are the frequencies of 2-grams and 3-grams ?
-- How many unique words in a frequency sorted dictionary to cover 50% of all words instance ? 90% ?
-- how to increase the coverage ? 
-     + analysis without stemming
-     + try with stemming in order to increase coverage
-- how evaluate how many words from foreign languages ?
-
-## Frequencies of words and wordcloud
+## Frequencies of words
 
 ### Most commons words
+As seen below the results aren't very interesting, because the most commons words are... common words, like 'the' or 'a' or 'and'. But they are needed as users type them and might need a prediction for them.
+Studying the distribution of only one word is not enough for a predictive software.  
+
 ```{r, histo}
 countPlot(uniqueSample)
-wordCloudPlot(uniqueSample, nb=200)
 ```
-
-
-As seen below the results aren't very interesting, because the most commons words are... common words, like 'the' or 'a' or 'and'. But they are needed as people type them and might need a prediction for them.
-Studying the distribution of only one words is not a solution for a predictive software.  
 
 
 ### Minimum unique words to cover distribution
 Some interesting results : the numbers of unique words to describe 90 % of the total words is not so important, as seen in the following plots and tables.
 
-```{r, coverWords}
-# cumulativePlot(twitTidy)
-# cumulativePlot(blogTidy)
-# cumulativePlot(newsTidy)
+```{r, coverWords, fig.width=10}
 cumulativePlot(uniqueSample)
 ```
 
 ```{r, summary}
-# twitCover <- coverWords(twitTidy)
-# blogCover <- coverWords(blogTidy)
-# newsCover <- coverWords(newsTidy)
-# uniqueCover <- coverWords(uniqueSample)
-
-# results <- rbind(twitCover, blogCover, newsCover, uniqueCover)
-# row.names(results) <- c("twitter", "blog","news", "merged")
-knitr::kable(coverWords(uniqueSample))
+knitr::kable(coverWords(uniqueSample), format.args=list(big.mark=","))
 ```
 
-It might be possible to have a good prediction for only few uniques words, as they cover most of the uses.  
+
+*It might be possible to have a good prediction for only few uniques words, as they cover most of the uses.*  
 The next step is to study the associations of words in the dataset, to begin to think of a predictive model.
 
 
 ## Terms associations
 
 ### 2 and 3-grams
-To study associations of words, it's useful to check 'n-grams', which are groups of n words. As for unique words, the mosts commons n-grams and the minimum unique n-grams to cover 90 % of the distribution will be studied.  
+To study associations of words, it's useful to check the 'n-grams', which are groups of n words. As for unique words, the mosts commons n-grams and the minimum unique n-grams to cover 90 % of the distribution will be studied.  
 Then a map of words associations can be plotted.
 
 ```{r, bigram, cache=TRUE}
@@ -417,19 +375,20 @@ uniqueTrigram <- rbind(twitTrigram, blogTrigram, newsTrigram)
 Distributions of most commons bigrams and trigrams, without any filter :
 
 ```{r, countPlot}
-# countPlot(uniqueBigram)
-# wordCloudPlot(uniqueBigram)
-# countPlot(uniqueTrigram)
-# wordCloudPlot(uniqueTrigram)
 plot_grid(countPlot(uniqueBigram), countPlot(uniqueTrigram), align='h')
 ```
 
-Another way to represent words associations are shown below : associations seems to be more "precise" as n increase.
+Another way to represent words associations are shown below : associations seems to be more "precise" as n increase.  
+**Plot of relationship between words based on bigrams :**
 
-```{r, relationPlot, cache=TRUE}
+```{r, relationBi}
 # need a bigram at least !
 # by default, the relationPlot for 100 most common ngrams.
 relationPlot(uniqueBigram, nb=150)
+```
+
+**Plot of relationship between words based on trigrams :**
+```{r, relationTri}
 relationPlot(uniqueTrigram, nb=150)
 ```
 
@@ -443,25 +402,29 @@ loveTri <- countPlot(loveTri)
 plot_grid(loveBi, loveTri, align='h')
 ```
 
-Some predictions possibilities begin to appear, for example by filtering bigrams by the first word typed by the user, then filtering trigrams by the two words typed by user, and so on, and choosing the first three results of each.  
-But a problem appears too : the numbers of ngrams necessary to cover the distribution increase with n, as shown in the followings plots.
+*Some predictions possibilities begin to appear, for example by filtering bigrams by the first word typed by the user, then filtering trigrams by the two words typed by user, and so on, and choosing the first three results of each.*  
+But a problem appears too : the numbers of ngrams necessary to cover the distribution increase with n, as shown in the followings plots. The calculations might be very long with large n.
 
-```{r, ngramPlot, cache=TRUE}
+```{r, ngramPlot}
 plotTri <- cumulativePlot(uniqueTrigram) + ylab(NULL)
 plot_grid(cumulativePlot(uniqueBigram), plotTri, align='h')
-# plot_grid(cumulativePlot(uniqueBigram), cumulativePlot(uniqueTrigram))
 resultCover <- rbind(coverWords(uniqueBigram), coverWords(uniqueTrigram))
-knitr::kable(resultCover)
-# test for cache
-# knitr::kable(coverWords(uniqueBigram))
-# knitr::kable(coverWords(uniqueTrigram))
+
+knitr::kable(resultCover, format.args=list(big.mark=","))
 ```
 
 
 # Future
 All the difficulty is to have the most precise prediction as possible, but also as quick as possible.  
-The preliminary study show that a predictive model could work : as the user type n words, find the most common (n+1)grams corresponding to typed words.  
-So the future studies consists of find the best (n+1)grams to permit accuracy and quick response.
+The preliminary study show that a predictive model could work : as the user type n words, find the most common (n+1)grams corresponding to the typed words.
+This model could adapt itself to the user, by adding new typed words in the datasets.  
+
+  
+So the future studies consists of :
+
+- finding the best (n+1)grams to permit accuracy and quick response.
+- trying ngrams with only the words necessary to cover 90 % of the datasets, to lower the number of possible ngrams, and so increase response speed.
+
 
 ## Sources
 Source : [tidytextmining.com](http://tidytextmining.com/)
