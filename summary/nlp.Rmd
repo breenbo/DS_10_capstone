@@ -1,6 +1,6 @@
 ---
 title: "Text Prediction"
-output: 
+output:
     html_document: 
         includes:
             after_body: custom/footer.html
