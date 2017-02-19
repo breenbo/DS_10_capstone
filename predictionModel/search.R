@@ -1,3 +1,66 @@
+# make a trie with triebeard package
+library(triebeard)
+library(dplyr)
+test <- read.csv(file = "bigrams.csv", stringsAsFactors=F)
+str(test)
+dim(test)
+head(test)
+############################################################
+# test avec keys=next word : frequency
+# but don't work...
+############################################################
+countTest <- test %>% count(ngram, sort=T)
+countTest
+countTest %>% filter(grepl('^in ', ngram))
+countTest <- countTest %>% 
+    separate(col = ngram, into = c('word1','word2'),sep = " ") %>%
+    mutate(values=paste(word2,n, sep=":"))
+countTest %>% filter(grepl('^in', word1))
+str(countTest)
+head(countTest)
+
+valeurs <- countTest$values
+clefs <- countTest$word1
+valeurs
+clefs
+
+trieTest <- trie(keys=clefs, values=valeurs)
+trieTest
+print(object.size(trieTest), format='auto')
+prefix_match(trie=trieTest,to_match = 'in')[[1]]
+
+############################################################
+# test avec bigram et keys=frequence
+# how retrieve the bigrams with the key value ????
+############################################################
+countTest1 <- test %>% count(ngram, sort=T)
+values1 <- countTest1$n
+keys1 <- countTest1$ngram
+trieTest1 <- trie(keys=keys1, values=values1)
+prefix_match(trie=trieTest1,to_match = 'girl ')
+str(trieTest1)
+
+ranges <- sort(prefix_match(trie=trieTest1, to_match = 'girl ')[[1]], decreasing=T)
+ranges
+
+maxi <- which(get_values(trieTest1)==ranges[1])
+get_keys(trieTest1)[maxi]
+
+nextWord <- function(mot){
+    # take a word, and predict the next one with an existing trie
+    matchMot <- prefix_match(trie=trieTest1,to_match = mot)
+    ranges <- sort(matchMot[[1]], decreasing=T)
+    maxi <- which(get_values(trieTest1)==ranges[1])
+    get_keys(trieTest1)[maxi]
+}
+
+nextWord('girl ')
+
+# Source : https://cran.r-project.org/web/packages/triebeard/vignettes/r_radix.html
+# Source : http://stackoverflow.com/questions/11449115/algorithms-theory-behind-predictive-autocomplete
+
+
+############################################################
 # The goal of this exercise is to build and evaluate your first predictive model. You will use the n-gram and backoff models you built in previous tasks to build and evaluate your predictive model. The goal is to make the model efficient and accurate.
 # 
 # Tasks to accomplish :
@@ -274,7 +337,8 @@ uniqueBigram %>% filter(grepl('^can ', ngram)) %>% count(ngram, sort=T)
 
 # avec stem
 test <- read.csv(file = "bigrams.csv")
-test %>% filter(grepl('^motor ', ngram)) %>% count(ngram, sort=T)
+test %>% count(ngram, sort=T)
+test %>% filter(grepl('^the ', ngram)) %>% count(ngram, sort=T)
 
 # trigrams
 twitTrigram <- tidyNGram(twitTest, n=3, stemwords=FALSE)
@@ -306,11 +370,103 @@ dim(uniquePentagram)
 head(uniquePentagram)
 write.csv(uniquePentagram, file="pentagrams.csv")
 uniquePentagram %>% filter(grepl('^i am sure they', ngram)) %>% count(ngram, sort=T)
+############################################################
 
+# Faire une fonction qui prend in mot en abscisse, le suivant en ordonnées, et le nb d'occurence.
+#     the     a      my    his   ...
+# of  2063   372    179    132
+# in  1917   540    181    105
 
+# it will be the transformation matrix for the Markov chain
+
+library(dplyr)
+library(tidyr)
+test <- read.csv(file = "bigrams.csv")
+test %>% count(ngram, sort=T)
+test %>% filter(grepl('^the ', ngram)) %>% count(ngram, sort=T)
+test %>% count(ngram, sort=T)
+#test %>% filter(grepl('^of ', ngram)) %>% 
+    #count(ngram, sort=T) %>% 
+    #separate(col = ngram, into = c("word1","word2"), sep = " ")
+sepTest <- test %>% separate(ngram, c("word1","word2"), sep=" ") %>% count(word1, word2, sort=T)
 
 
 # Future
 
 # finding the best (n+1)grams to permit accuracy and quick response.
 # trying ngrams with only the words necessary to cover 90 % of the datasets, to lower the number of possible ngrams, and so increase response speed.
+
+# très lourd en taille mais très rapide... 
+
+markovTable <- function(tidyText){
+    # take a tidy ngram table and return a tansition matrix for markov chain
+    library(dplyr)
+    library(stringr)
+    library(tidyr)
+    # count number of ngrams to determine nb of columns
+    nbCol <- str_count(tidyText$ngram[1], '\\w+')
+    # separate in nbgram columns and count depending on columns
+    name <- NULL
+    for(i in 1:nbCol){
+        name <- c(name,paste("word",i, sep=""))
+    }
+    tidyText <- tidyText %>% count(ngram, sort=T) %>%
+        separate(col=ngram, into=name, sep=" ")
+    # filter by first words and transform to only keep words and frequency colums
+    markov <- data.frame(wordRef='a')
+    # begin of the loop
+    mots <- unique(tidyText$word1)
+
+    for(mot in mots){
+        filterTest <- tidyText %>% filter(word1 == mot) %>%
+            transmute(wordRef=word2, n=n)
+            # transmute(wordRef=word2, freq=n/sum(n))
+        names(filterTest) <- c("wordRef", mot)
+        # full_join in former matrix by word
+        markov <- full_join(markov, filterTest, by="wordRef")
+    }
+    # end of the loop
+    markov
+}
+
+markovTest <- markovTable(test)
+
+markovTest[which.max(markovTest$"night"),1]
+names(markovTest)
+dim(markovTest)
+length(unique(sepTest$word1))
+print(object.size(markovTest), units='auto')
+print(object.size(test), units='auto')
+
+
+############################################################
+# lent, mais optimisable en retirant les bigrames à la con (pas anglais, ou n'apparaissant qu'une seule fois)
+markovPred <- function(mot, tidyText){
+    # take a word and a ngram tidyText done with tidytext, and return a prediction of the next word
+    # count number of ngrams to determine nb of columns
+    nbCol <- str_count(tidyText$ngram[1], '\\w+')
+    # separate in nbgram columns and count depending on columns
+    name <- NULL
+    for(i in 1:nbCol){
+        name <- c(name,paste("word",i, sep=""))
+    }
+    tidyText <- tidyText %>% count(ngram, sort=T)
+    tidyText <- tidyText[1:160097,] %>%
+        separate(col=ngram, into=name, sep=" ")
+    # select bigrams to cover 90% of distribution
+    # filter by the typed word
+    tidyText <- tidyText %>% filter(word1 == mot)
+    tidyText$word2[1:3]
+}
+
+coverWords(test)
+
+library(stringr)
+library(tidyr)
+markovPred("foot", test)
+dim(sepTest)
+sepTest[160097,]
+tail(sepTest)
+tail(sepTest %>% filter(n>1))
+
+# User enter the table by column (select function), then count and write the 3 most common row
