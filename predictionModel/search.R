@@ -2,11 +2,25 @@
 library(triebeard)
 library(dplyr)
 library(tidyr)
-biTest <- read.csv(file = "bigrams.csv", stringsAsFactors=F)
-triTest <- read.csv(file="trigrams.csv", stringsAsFactors=F)
-str(test)
-dim(test)
-head(test)
+library(data.table)
+biTest <- fread(file = "bigrams.csv", stringsAsFactors=F)
+netbiTest <- biTest
+biTest <- count(biTest, ngram, sort=T)
+dim(biTest)
+tail(biTest, 20)
+
+# remove non ASCII characters
+# a intégrer dans preprocess avant savegarde en .csv
+netbiTest$ngram <- iconv(netbiTest$ngram, "ASCII", sub="")
+netbiTest <- count(netbiTest, ngram, sort=T)
+tail(netbiTest)
+
+triTest <- fread(file="trigrams.csv", stringsAsFactors=F)
+str(biTest)
+dim(biTest)
+head(biTest)
+tail(biTest)
+
 ############################################################
 # test avec trie : ok works really good (fast with bigrams)
 # test avec keys=next word _ frequency
@@ -49,16 +63,33 @@ biTrie <- ngram2Trie(biTest)
 triTrie <- ngram2Trie(triTest)
 quadTrie <- ngram2Trie(quadTest)
 pentaTrie <- ngram2Trie(pentaTest)
+class(biTrie)
+str(biTrie)
 
-print(object.size(triTrie), units='auto')
-head(triTest)
-prefix_match(trie=triTrie, to_match="in the ")
+# test of saving trie on HD...
+saveTrie <- data.frame(keys=get_keys(biTrie), values=get_values(biTrie))
+head(saveTrie)
+print(object.size(saveTrie), units='auto')
+fwrite(saveTrie, 'biTrie.csv')
+readTrie <- fread('biTrie.csv')
+returnTrie <- trie(keys=readTrie$keys, values=readTrie$values)
+str(returnTrie)
+
+saveRDS(biTrie, "biTrie.rds", refhook='string_trie')
+str(biTrie)
+class(biTrie)
+attr(biTrie)
+
+
 
 nextWords <- function(mot) {
     # take a word and return 3 predictives words by using a trie done before and stored in a global variable
     nbMot <- str_count(mot, '\\w+')
     # select the trie depending on the number of words
+    # read the nTrie depending on the number of words
     nTrie <- switch(nbMot,biTrie,triTrie,quadTrie,pentaTri)
+
+
     nextW <- as.data.frame(prefix_match(trie=nTrie, to_match = mot)[[1]])
     names(nextW) <- "prefix"
     nextW <- nextW %>% separate(col = prefix, into = c('nxt','nb'), sep = "_") 
@@ -71,9 +102,12 @@ nextWords("in the mood for ")
 
 
 # TODO NEXT :
+# 0. save csv ngrams without non ASCII char (use iconv() function)
 # 1. create function to transform ngrams in trie with last word and frequencies as values. Keys should be the typed words.
 # 2. change 'nextWords' to take n words and look at the corresponding (n+1)gram
 # 3. change 'nextWords' to be updated by the user words
+# 4. find a way to store trie in HD without to create them each time the function is called...
+# 5. in the function nextWord, read the (n+1)Trie depending on the number of words typed
 
 
 
