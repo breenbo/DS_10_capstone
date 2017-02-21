@@ -1,33 +1,97 @@
 # make a trie with triebeard package
 library(triebeard)
 library(dplyr)
-test <- read.csv(file = "bigrams.csv", stringsAsFactors=F)
+library(tidyr)
+biTest <- read.csv(file = "bigrams.csv", stringsAsFactors=F)
+triTest <- read.csv(file="trigrams.csv", stringsAsFactors=F)
 str(test)
 dim(test)
 head(test)
 ############################################################
-# test avec keys=next word : frequency
-# but don't work...
+# test avec trie : ok works really good (fast with bigrams)
+# test avec keys=next word _ frequency
 ############################################################
 countTest <- test %>% count(ngram, sort=T)
-countTest
-countTest %>% filter(grepl('^in ', ngram))
 countTest <- countTest %>% 
+    mutate(bigram=ngram) %>%
     separate(col = ngram, into = c('word1','word2'),sep = " ") %>%
-    mutate(values=paste(word2,n, sep=":"))
+    mutate(valeurs=paste(word2,as.character(n), sep=":"))
+valeurs <- countTest$valeurs
+clefs <- countTest$bigram
+trieTest2 <- trie(keys=clefs, values=valeurs)
 countTest %>% filter(grepl('^in', word1))
-str(countTest)
-head(countTest)
 
-valeurs <- countTest$values
-clefs <- countTest$word1
-valeurs
-clefs
+ngram2Trie <- function(tidyText){
+    # take a ngram tidyText and return a trie with the ngram as keys, the last word and frequencies as values
+    library(dplyr)
+    library(tidyr)
+    library(stringr)
+    # count nb words in ngram
+    nbCol <- str_count(tidyText$ngram[1], '\\w+')
+    name <- NULL
+    for(i in 1:nbCol){
+        name <- c(name,paste("word",i, sep=""))
+    }
+    finalWord <- name[nbCol]
+    # separate last words and merge with frequencies
+    tidyText <- tidyText %>%
+        count(ngram) %>%
+        mutate(clefs=ngram) %>%
+        separate(col=ngram, into=name, sep=" ") %>%
+        unite(valeurs, get(finalWord), n) %>%
+        select(c(clefs,valeurs))
+    # create the trie
+    trieVar <- trie(keys=tidyText$clefs, values=tidyText$valeurs)
+    trieVar
+}
 
-trieTest <- trie(keys=clefs, values=valeurs)
-trieTest
-print(object.size(trieTest), format='auto')
-prefix_match(trie=trieTest,to_match = 'in')[[1]]
+biTrie <- ngram2Trie(biTest)
+triTrie <- ngram2Trie(triTest)
+quadTrie <- ngram2Trie(quadTest)
+pentaTrie <- ngram2Trie(pentaTest)
+
+print(object.size(triTrie), units='auto')
+head(triTest)
+prefix_match(trie=triTrie, to_match="in the ")
+
+nextWords <- function(mot) {
+    # take a word and return 3 predictives words by using a trie done before and stored in a global variable
+    nbMot <- str_count(mot, '\\w+')
+    # select the trie depending on the number of words
+    nTrie <- switch(nbMot,biTrie,triTrie,quadTrie,pentaTri)
+    nextW <- as.data.frame(prefix_match(trie=nTrie, to_match = mot)[[1]])
+    names(nextW) <- "prefix"
+    nextW <- nextW %>% separate(col = prefix, into = c('nxt','nb'), sep = "_") 
+    nextW$nb <- as.integer(nextW$nb)
+    nextW <- nextW %>% arrange(desc(nb))
+    nextW[1:3,1]
+}
+
+nextWords("in the mood for ")
+
+
+# TODO NEXT :
+# 1. create function to transform ngrams in trie with last word and frequencies as values. Keys should be the typed words.
+# 2. change 'nextWords' to take n words and look at the corresponding (n+1)gram
+# 3. change 'nextWords' to be updated by the user words
+
+
+
+
+countTest %>% filter(grepl('^in ', ngram))
+print(object.size(trieTest2), format='auto')
+nextW <- as.data.frame(prefix_match(trie=trieTest2,to_match ="in ")[[1]])
+names(nextW) <- "prefix"
+head(nextW)
+nextW <- nextW %>% separate(col = prefix, into = c('nxt','nb'), sep = ":") 
+head(nextW)
+nextW$nb <- as.integer(nextW$nb)
+str(nextW)
+print(object.size(nextW), format='auto')
+
+nextW <- nextW %>% arrange(desc(nb))
+head(nextW)
+
 
 ############################################################
 # test avec bigram et keys=frequence
@@ -89,15 +153,6 @@ nextWord('girl ')
 # - Can you think of simple ways to "smooth" the probabilities (think about giving all n-grams a non-zero probability even if they aren't observed in the data) ?
 # - How do you evaluate whether your model is any good?
 # - How can you use backoff models to estimate the probability of unobserved n-grams?
-
-############################################################
-
-# Faire les calculs en back-end (bi, tri, quadra et pentagrams)
-# Sauver les resultats dans un csv
-# Utiliser les résultats en lisant les csv
-# Faire traitement du texte entré par utilisateur : abbreviations et contractions pour correspondre aux données des datasets.
-# Faire classement des ngrams les plus courant a partir des mots rentrés
-# Enregristrer les mots rentrés (et leur classement) dans un dictionnaire utilisateur, qui peut être ajouter à la base de donnée (au dessus ou en back end ?)
 
 ############################################################
 
