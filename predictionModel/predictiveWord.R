@@ -13,6 +13,8 @@ library(tidyr)
 library(data.table)
 biTest <- fread(file = "bigrams.csv", stringsAsFactors=F)
 triTest <- fread(file="trigrams.csv", stringsAsFactors=F)
+quadTest <- fread(file="quadgrams.csv", stringsAsFactors=F)
+pentaTest <- fread(file="pentagrams.csv", stringsAsFactors=F)
 
 
 ngram2Trie <- function(tidyText){
@@ -59,3 +61,5 @@ nextWords <- function(mot) {
     nextW <- nextW %>% arrange(desc(nb))
     nextW[1:3,1]
 }
+
+nextWords('spider ')
