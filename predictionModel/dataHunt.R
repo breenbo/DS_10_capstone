@@ -25,18 +25,29 @@ tidyNGram <- function(texte, lang="en", rmStopword=FALSE, stemwords=FALSE, n.gra
         replace_ordinal(remove=TRUE) %>%
         replace_symbol() %>% replace_abbreviation() %>%
         iconv(from = "ASCII", sub="") # remove non english char
-    # remove non english words ?
-    check_text(twit[1])
-    check_spelling(twit[1])
-    replace_contraction("btw")
-    multigsub(pattern = )
-    miss <- as.data.frame(which_misspelled(twit[1]), stringsAsFactors=F)
-    miss[,1]
-    twit[1] <- tolower(twit[1])
-    miss1 <- paste(miss[,1])
-    miss1
-    str_replace(twit[1],miss1, "")
-    gsub(pattern = miss1, replacement = "", x = twit[1])
+   ############################################################ 
+    # remove non english words
+    missReplace <- function(string){
+        miss <- which_misspelled(string)
+        attr(miss,'names') <- NULL
+        for(m in miss){
+            string <- str_replace(string, m, "")
+        }
+        string
+    }
+    twit[2] <- twit[2] %>%
+        tolower() %>%
+        replace_contraction()
+    twit[2]
+    missReplace(twit[4])
+
+    testMiss <- lapply(twit[1:5], missReplace)
+    len <- length(testMiss)
+    textFile <- data.table()
+    textFile <- data.table(line=1:len, text=testMiss)
+    textFile
+
+   ############################################################ 
 
     # remove stopwords option
     if(rmStopword==TRUE){
