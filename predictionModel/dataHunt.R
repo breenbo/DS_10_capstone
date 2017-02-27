@@ -1,53 +1,42 @@
-library(data.table)
-library(stringr)
-
+# read datasets
 twit <- readLines("../text/en_US.twitter.txt", skipNul=TRUE)
 blog <- readLines("../text/en_US.blogs.txt", skipNul=TRUE)
 news <- readLines("../text/en_US.news.txt", skipNul=TRUE)
 
+# take samples because datasets are too big
 set.seed(2704)
-twitTest <- sample(twit, 1000, replace=F)
+twitTest <- sample(twit, 100000, replace=F)
 blogTest <- sample(blog, 100000, replace=F)
 newsTest <- sample(news, 100000, replace=F)
 
-tidyNGram <- function(texte, lang="en", rmStopword=FALSE, stemwords=FALSE, n.gram=1) {
+# clean datasets in order to make ngrams
+cleanText <- function(texte, lang="en", rmStopword=FALSE, stemwords=FALSE) {
     # take a text file, and return a possibly clean without stopwords and stemmed 
-    # tidy table depending if chosen options 
+    # tibble depending if chosen options 
     library(data.table)
-    library(tidytext)
     library(dplyr)
     library(qdap)
+    library(hunspell)
+    library(stringr)
     # cleaning sentences
     texte <- texte %>% 
         replace_contraction() %>%
         tolower() %>%
         replace_number(remove=TRUE) %>%
         replace_ordinal(remove=TRUE) %>%
-        replace_symbol() %>% replace_abbreviation() %>%
-        iconv(from = "ASCII", sub="") # remove non english char
-   ############################################################ 
+        replace_symbol() %>% replace_abbreviation()
+    # remove non english char
+    texte <- iconv(x = texte, from = "ASCII", sub="") 
     # remove non english words
+    # better to use hunspell than qdap because qdap causes errors with some chars
     missReplace <- function(string){
-        miss <- which_misspelled(string)
-        attr(miss,'names') <- NULL
+        miss <- unlist(hunspell(string))
         for(m in miss){
             string <- str_replace(string, m, "")
         }
         string
     }
-    twit[2] <- twit[2] %>%
-        tolower() %>%
-        replace_contraction()
-    twit[2]
-    missReplace(twit[4])
-
-    testMiss <- lapply(twit[1:5], missReplace)
-    len <- length(testMiss)
-    textFile <- data.table()
-    textFile <- data.table(line=1:len, text=testMiss)
-    textFile
-
-   ############################################################ 
+    texte <- lapply(texte, missReplace)
 
     # remove stopwords option
     if(rmStopword==TRUE){
@@ -57,45 +46,45 @@ tidyNGram <- function(texte, lang="en", rmStopword=FALSE, stemwords=FALSE, n.gra
     if(stemwords==TRUE){
         texte <- stemmer(texte)
     }
-    # transforms list in tidy table
+    # transforms list in tibble
     len <- length(texte)
-    textFile <- data.table()
-    textFile <- data.table(line=1:len, text=texte)
-    tidyText <- textFile %>% 
-        unnest_tokens(ngram, text, token="ngrams", n=n.gram)
-    tidyText
+    textFile <- tibble()
+    textFile <- tibble(line=1:len, text=unlist(texte))
+    textFile
 }
 
-bitwit <- tidyNGram(twitTest,n.gram=2)
-bitwit
-biblog <- tidyNGram(blogTest,n.gram=2)
-binews <- tidyNGram(newsTest,n.gram=2)
-bigrams <- rbind(bitwit, biblog, binews)
-savebi <- bigrams
+# create ngrams
+tidyNGram <- function(texte, n.gram=1){
+    # take a tibble text and return tibble of ngrams
+    library(tidytext)
+    texte <- unnest_tokens(texte, ngram, text, token="ngrams", n=n.gram)
+    texte
+}
 
+############################################################
+library(data.table)
+
+cleanTwit <- cleanText(twitTest)
+cleanBlog <- cleanText(blogTest)
+cleanNews <- cleanText(newsTest)
+cleanTexts <- rbind(cleanTwit, cleanBlog, cleanNews)
+fwrite(cleanTexts, 'cleanTexts.csv')
+
+############################################################
+library(data.table)
+cleanTexts <- fread("cleanTexts.csv", stringsAsFactors=F)
+
+monograms <- tidyNGram(cleanTexts)
+fwrite(monograms, 'monograms.csv')
+
+bigrams <- tidyNGram(cleanTexts, n.gram=2)
 data.table::fwrite(bigrams, 'bigrams.csv')
 
-tritwit <- tidyNGram(twitTest,n.gram=3)
-triblog <- tidyNGram(blogTest,n.gram=3)
-trinews <- tidyNGram(newsTest,n.gram=3)
-trigrams <- rbind(tritwit, triblog, trinews)
-savetri <- trigrams
-
+trigrams <- tidyNGram(cleanTexts, n.gram=3)
 fwrite(trigrams, 'trigrams.csv')
 
-quadtwit <- tidyNGram(twitTest,n.gram=4)
-quadblog <- tidyNGram(blogTest,n.gram=4)
-quadnews <- tidyNGram(newsTest,n.gram=4)
-quadgrams <- rbind(quadtwit, quadblog, quadnews)
-savequad <- quadgrams
-
+quadgrams <- tidyNGram(cleanTexts, n.gram=4)
 fwrite(quadgrams, 'quadgrams.csv')
 
-pentatwit <- tidyNGram(twitTest,n.gram=5)
-pentablog <- tidyNGram(blogTest,n.gram=5)
-pentanews <- tidyNGram(newsTest,n.gram=5)
-pentagrams <- rbind(pentatwit, pentablog, pentanews)
-savepenta <- pentagrams
-pentagrams$ngram <- iconv(pentagrams$ngram, "ASCII", sub="")
-
+pentagrams <- tidyNGram(cleanTexts, n.gram=5)
 fwrite(pentagrams, 'pentagrams.csv')

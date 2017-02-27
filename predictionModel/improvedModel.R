@@ -14,7 +14,39 @@
 ############################################################
 # test with hashtable for better memory usage and speed ?
 # use different datasets, or more bigger datasets
+# post-process typed words to fit the ngrams (remove abbreviations and contractions, change misspelled words ?)
+# change function in order to use only one ngrams (post-process trie to have n-1 columns and choose th right words depending on the numbers of words typed by user)
+# try to work with trie with ngram as key and frequencies as values ?
 ############################################################
+
+ngram4Trie <- function(tidyText.csv, save=FALSE){
+    # take a ngram tidyText and return a csv before transform to trie
+    # ngrams is stored in HD
+    # option to be saved on HD or not
+    library(dplyr)
+    library(tibble)
+    library(tidyr)
+    library(stringr)
+    library(data.table)
+    # count nb words in ngram
+    tidyText <- fread(file=tidyText.csv, stringsAsFactors=F)
+    nbCol <- str_count(tidyText$ngram[1], '\\w+')
+    name <- NULL
+    for(i in 1:nbCol){
+        name <- c(name,paste("word",i, sep=""))
+    }
+    finalWord <- name[nbCol]
+    # separate last words and merge with frequencies
+    tidyText <- tidyText %>%
+        count(ngram) %>%
+        mutate(clefs=ngram) %>%
+        separate(col=ngram, into=name, sep=" ") %>%
+        unite(valeurs, get(finalWord), n) %>%
+        select(c(clefs,valeurs))
+    if(save==TRUE){
+        fwrite(x = tidyText, file = paste(nbCol,"grams4trie.csv", sep=""))
+    } else { tidyText }
+}
 
 ngram2Trie <- function(tidyText){
     # create the trie with the ngrams4trie.csv done with ngram4trie()
@@ -25,17 +57,13 @@ ngram2Trie <- function(tidyText){
 }
 
 library(data.table)
+ngram4Trie("bigrams.csv", save=TRUE)
 biGrams4trie <- fread("2grams4trie.csv")
 biTrie <- ngram2Trie(biGrams4trie)
 
+ngram4Trie("trigrams.csv", save=TRUE)
 triGrams4trie <- fread("3grams4trie.csv")
 triTrie <- ngram2Trie(triGrams4trie)
-
-quadGrams4trie <- fread("4grams4trie.csv")
-quadTrie <- ngram2Trie(quadGrams4trie)
-
-pentaGrams4trie <- fread("5grams4trie.csv")
-pentaTrie <- ngram2Trie(pentaGrams4trie)
 
 
 nextWords <- function(mot) {
@@ -47,7 +75,7 @@ nextWords <- function(mot) {
     nbMot <- str_count(mot, '\\w+')
     # select the trie depending on the number of words
     # read the nTrie depending on the number of words
-    nTrie <- switch(nbMot, biTrie, triTrie, quadTrie, pentaTrie)
+    nTrie <- switch(nbMot, biTrie, triTrie)
 
     nextW <- as.data.frame(prefix_match(trie=nTrie, to_match = mot)[[1]])
     names(nextW) <- "prefix"
@@ -57,4 +85,4 @@ nextWords <- function(mot) {
     nextW[1:5,1]
 }
 
-nextWords('from playing ')
+nextWords('in each ')
